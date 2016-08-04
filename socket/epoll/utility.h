@@ -27,10 +27,15 @@ list<int> cs;
 
 int make_server_socket(const char *ip, int port)
 {
+	int yes = 1;
 	int server_socket;
 
 	if(-1 == (server_socket = socket(AF_INET, SOCK_STREAM, 0)))
 		myErr("server socket failed");
+
+	// 使linux允许server断开后,绑定的port可以立即被再次使用
+	if (-1 == setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)))
+        myErr("setsockopt failed");
 
 	sockaddr_in addr;
 	bzero((void *)&addr, sizeof(addr));

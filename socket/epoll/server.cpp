@@ -15,19 +15,24 @@
 */
 
 #include "utility.h"
+#include "sqllib.h"
+
+void client_connect(int sockfd);
+void client_message(int sockfd);
+void message_route(int sockfd, vector<string> vs);
 
 int main(int ac, char *av[])
 {
 	signal(SIGCHLD, child_waiter);
-	cs.clear();
+	cs.clear();		// 清理客户信息
 
 	int listener = make_server_socket(IP, PORT);
-	int epfd, event_cnt;
+	int event_cnt;
 
 	if(-1 == (epfd = epoll_create(EPOLL_SIZE)))
 		myErr("create epoll failed");
 	epoll_event events[EPOLL_SIZE];
-	epfd_add(epfd, listener, true);
+	epfd_add(epfd, listener, true);		// epoll中注册服务器fd
 
 	while(1)
 	{
@@ -41,9 +46,9 @@ int main(int ac, char *av[])
 			int sockfd = events[i].data.fd;
 
 			if(sockfd == listener)
-				handler_connect(epfd, sockfd);
+				client_connect(sockfd);
 			else
-				handler_message(epfd, sockfd);	
+				client_message(sockfd);	
 		}
 	}
 
@@ -52,3 +57,99 @@ int main(int ac, char *av[])
 	return 0;
 }
 
+void client_connect(int sockfd)
+{
+	int clientfd;
+	sockaddr_in client_address;
+	socklen_t addrlen = sizeof(sockaddr_in);
+
+	if(-1 == (clientfd = accept(sockfd, (sockaddr *)&client_address, &addrlen)))
+		myErr("accept failed");
+	cs.push_back(clientfd);
+	epfd_add(epfd, clientfd, true);
+
+	printf("client connection from: %s : % d(IP : port), clientfd = %d \n",
+    		inet_ntoa(client_address.sin_addr),
+    		ntohs(client_address.sin_port),
+    		clientfd);
+}
+
+void client_message(int sockfd)
+{
+	char msg[BUFSIZ], buf[BUFSIZ];
+	bzero(msg, BUFSIZ); bzero(buf, BUFSIZ);
+	int len = recv(sockfd, buf, BUFSIZ, 0);
+	if(0 > len)
+	{
+		myErr("recv failed");
+	}
+	else if(0 == len)	
+	{
+		cs.remove(sockfd);
+		close(sockfd);
+		epfd_del(epfd, sockfd);		// 不再监视离开的用户的fd
+		cout<<"client exit"<<endl;
+	}
+	else
+	{/*
+		cout<<"recevie from client :"<<buf<<endl;
+		sprintf(msg, "client %d said %s", sockfd, buf);
+		list<int>::iterator it;
+        for(it = cs.begin(); it != cs.end(); it++)
+			if(*it != sockfd)
+				{if(-1 == send(*it, msg, BUFSIZ, 0)) myErr("send to client failed");}
+		*/
+		message_route(sockfd, split(buf));
+	}
+}
+
+void message_route(int sockfd, vector<string> vs)
+{
+	if(0 == vs.size())
+		myErr("message NULL");
+
+	for(int i = 0; i < vs.size(); i++)
+		cout<<vs[i]<<endl;
+
+	if("login" == vs[0])
+	{
+		login_info usr;
+		usr.name = vs[1];
+		usr.pwd = vs[2];
+		if(wesql.Login(usr))
+		{
+			if(-1 == send(sockfd, "Success", BUFSIZ, 0))
+				myErr("login send success failed");
+		}
+		else
+		{
+			if(-1 == send(sockfd, "Fail", BUFSIZ, 0))
+				myErr("login send fail failed");
+		}
+	}
+	else if("register" == vs[0])
+	{
+		register_info usr;
+		usr.name = vs[1];
+		usr.pwd = vs[2];
+		usr.email = vs[3];
+		usr.sex = vs[4];
+		usr.age = vs[5];
+		if(wesql.Register(usr))
+		{
+			if(-1 == send(sockfd, "Success", BUFSIZ, 0))
+				myErr("register send success failed");
+		}
+		else
+		{
+			if(-1 == send(sockfd, "Fail", BUFSIZ, 0))
+				myErr("register send fail failed");
+		}
+	}
+	else if("chat" == vs[0])
+	{
+		cout<<"welcome to chat room"<<endl;
+	}
+	else
+		;
+}

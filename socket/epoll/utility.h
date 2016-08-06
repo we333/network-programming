@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <vector>
 #include <string.h>
 
 using namespace std;
@@ -22,21 +23,35 @@ using namespace std;
 #define PORT (11112)
 #define EPOLL_SIZE (4096)
 #define	myErr(x)	{perror(x); exit(-1);}
+#define Try(x)		{if(-1 == (x)) {perror("failed"); exit(-1);}}
+#define COMMAND_SPLIT (" ,")
 
-list<int> cs;
+int epfd;			// epoll fd
+list<int> cs;		// 保存client_fd
 
 void child_waiter(int num)
 {
     int status;
-/*    pid_t pid;
-    while((pid = waitpid(-1, &status, WNOHANG)))
-        cout<<"child <<"<<pid<<" terminated"<<endl;
-*/
     waitpid(-1, &status, WNOHANG);   
     if (!WIFEXITED(status))
     	cout<<"child waiter failed"<<endl;
     else
     	cout<<"child over"<<endl;
+}
+
+vector<string> split(char *buf)
+{
+	vector<string> vs;
+	const char *d = COMMAND_SPLIT;
+	char *p = strtok(buf, d);
+
+	while(p)
+	{
+		vs.push_back(p);
+		p = strtok(NULL, d);
+	}
+	
+	return vs;
 }
 
 int make_server_socket(const char *ip, int port)
@@ -109,50 +124,6 @@ void epfd_del(int epollfd, int fd)
 	event.events = EPOLLIN;			// fd read enable
 
 	epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, &event);
-}
-
-void handler_connect(int epfd, int sockfd)
-{
-	int clientfd;
-	sockaddr_in client_address;
-	socklen_t addrlen = sizeof(sockaddr_in);
-
-	if(-1 == (clientfd = accept(sockfd, (sockaddr *)&client_address, &addrlen)))
-		myErr("accept failed");
-	cs.push_back(clientfd);
-	epfd_add(epfd, clientfd, true);
-
-	printf("client connection from: %s : % d(IP : port), clientfd = %d \n",
-    		inet_ntoa(client_address.sin_addr),
-    		ntohs(client_address.sin_port),
-    		clientfd);
-}
-
-void handler_message(int epfd, int sockfd)
-{
-	char msg[BUFSIZ], buf[BUFSIZ];
-	bzero(msg, BUFSIZ); bzero(buf, BUFSIZ);
-	int len = recv(sockfd, buf, BUFSIZ, 0);
-	if(0 > len)
-	{
-		myErr("recv failed");
-	}
-	else if(0 == len)	
-	{
-		cs.remove(sockfd);
-		close(sockfd);
-		epfd_del(epfd, sockfd);		// 不再监视exit的用户fd
-		cout<<"client exit"<<endl;
-	}
-	else
-	{
-		cout<<"recevie from client :"<<buf<<endl;
-		sprintf(msg, "client %d said %s", sockfd, buf);
-		list<int>::iterator it;
-        for(it = cs.begin(); it != cs.end(); it++)
-			if(*it != sockfd)
-				{if(-1 == send(*it, msg, BUFSIZ, 0)) myErr("send to client failed");}
-	}
 }
 
 #endif

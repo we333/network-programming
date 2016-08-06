@@ -45,6 +45,7 @@ int main(int ac, char *av[])
 		close(pipe_fd[0]);
 		while(living)
 		{
+			bzero(msg, BUFSIZ);
 			fgets(msg, BUFSIZ, stdin);
 			if(0 == strncasecmp(msg, "exit", strlen("exit")))
 				living = false;
@@ -70,7 +71,7 @@ int main(int ac, char *av[])
 				if(sockfd == events[i].data.fd)
 				{
 					int ret = recv(sockfd, msg, BUFSIZ, 0);
-					if(-1 == ret)	
+					if(-1 == ret)
 					{
 						myErr("recv failed");
 					}

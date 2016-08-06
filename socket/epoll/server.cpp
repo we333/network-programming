@@ -26,7 +26,7 @@ int main(int ac, char *av[])
 
 	if(-1 == (epfd = epoll_create(EPOLL_SIZE)))
 		myErr("create epoll failed");
-	struct epoll_event events[EPOLL_SIZE];
+	epoll_event events[EPOLL_SIZE];
 	epfd_add(epfd, listener, true);
 
 	while(1)
@@ -41,46 +41,9 @@ int main(int ac, char *av[])
 			int sockfd = events[i].data.fd;
 
 			if(sockfd == listener)
-			{
-				int clientfd;
-				sockaddr_in client_address;
-				socklen_t addrlen = sizeof(sockaddr_in);
-
-				if(-1 == (clientfd = accept(sockfd, (sockaddr *)&client_address, &addrlen)))
-					myErr("accept failed");
-				cs.push_back(clientfd);
-				epfd_add(epfd, clientfd, true);
-
-				printf("client connection from: %s : % d(IP : port), clientfd = %d \n",
-                		inet_ntoa(client_address.sin_addr),
-                		ntohs(client_address.sin_port),
-                		clientfd);
-			}
+				handler_connect(epfd, sockfd);
 			else
-			{
-				char msg[BUFSIZ], buf[BUFSIZ];
-				int len = recv(sockfd, buf, BUFSIZ, 0);
-				if(0 > len)
-				{
-					myErr("recv failed");
-				}
-				else if(0 == len)	
-				{
-					cs.remove(sockfd);
-					close(sockfd);
-					epfd_del(epfd, sockfd);		// 不再监视exit的用户fd
-					cout<<"client exit"<<endl;
-				}
-				else
-				{
-					cout<<"recevie from client :"<<buf<<endl;
-					sprintf(msg, "client %d said %s", sockfd, buf);
-					list<int>::iterator it;
-			        for(it = cs.begin(); it != cs.end(); it++)
-						if(*it != sockfd)
-							{if(-1 == send(*it, msg, BUFSIZ, 0)) myErr("send to client failed");}
-				}
-			}
+				handler_message(epfd, sockfd);	
 		}
 	}
 
@@ -88,3 +51,4 @@ int main(int ac, char *av[])
 	close(epfd);
 	return 0;
 }
+

@@ -20,11 +20,11 @@
 using namespace std;
 
 #define IP ("127.0.0.1")
-#define PORT (11112)
+#define PORT (11118)
 #define EPOLL_SIZE (4096)
 #define	myErr(x)	{perror(x); exit(-1);}
 #define Try(x)		{if(-1 == (x)) {perror("failed"); exit(-1);}}
-#define COMMAND_SPLIT (" ,")
+#define COMMAND_SPLIT ("|")
 
 int epfd;			// epoll fd
 list<int> cs;		// 保存client_fd

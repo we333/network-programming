@@ -14,12 +14,45 @@
 					|--> >0,接收客户的消息并处理(fork)
 */
 
+/*
+完成功能:
+	1.login
+	2.chat|name|msg 聊天指定发送对象	(用户登录时,fd写入mysql)
+	3.chat|all|msg  聊天内容发往所有在线用户
+	4.用户退出时,fd清空为-1
+
+待导入功能:
+	1.登录后,数据库更新登录状态
+	2.客户通过命令获取当前在线用户名单
+	3.是否使用多线程
+	4.用于聊天的fd保存在内存中,而不是每次chat都去读数据库
+
+Bug:
+	register的id自增问题
+*/
+
 #include "utility.h"
 #include "sqllib.h"
 
 void client_connect(int sockfd);
 void client_message(int sockfd);
 void message_route(int sockfd, vector<string> vs);
+	void Login(int sockfd, vector<string> vs);
+	void Register(int sockfd, vector<string> vs);
+	void Chat(int sockfd, vector<string> vs);
+
+typedef struct
+{
+	string cmd;
+	void (*func)(int, vector<string>);
+}Service;
+
+Service service[] = 
+{
+	{"login", 		Login},
+	{"register", 	Register},
+	{"chat",		Chat},
+};
 
 int main(int ac, char *av[])
 {
@@ -81,24 +114,19 @@ void client_message(int sockfd)
 	int len = recv(sockfd, buf, BUFSIZ, 0);
 	if(0 > len)
 	{
-		myErr("recv failed");
+		myErr("client_message recv failed");
 	}
-	else if(0 == len)	
+	else if(0 == len)
 	{
+		cout<<"******client exit******"<<endl;
 		cs.remove(sockfd);
 		close(sockfd);
 		epfd_del(epfd, sockfd);		// 不再监视离开的用户的fd
-		cout<<"client exit"<<endl;
+		// 一旦下线,用于聊天的addr也清空为-1
+		wesql.ClearAddr(sockfd);
 	}
 	else
-	{/*
-		cout<<"recevie from client :"<<buf<<endl;
-		sprintf(msg, "client %d said %s", sockfd, buf);
-		list<int>::iterator it;
-        for(it = cs.begin(); it != cs.end(); it++)
-			if(*it != sockfd)
-				{if(-1 == send(*it, msg, BUFSIZ, 0)) myErr("send to client failed");}
-		*/
+	{
 		message_route(sockfd, split(buf));
 	}
 }
@@ -108,48 +136,64 @@ void message_route(int sockfd, vector<string> vs)
 	if(0 == vs.size())
 		myErr("message NULL");
 
-	for(int i = 0; i < vs.size(); i++)
-		cout<<vs[i]<<endl;
+	for(int i = 0; i < sizeof(service)/sizeof(service[0]); i++)
+		if(service[i].cmd == vs[0])
+			service[i].func(sockfd, vs);
+}
 
-	if("login" == vs[0])
+void Login(int sockfd, vector<string> vs)
+{
+	login_info usr;
+	usr.name = vs[1];
+	usr.pwd = vs[2];
+	if(wesql.Login(usr, sockfd))		// 传入clientfd更新数据库信息,用于聊天
 	{
-		login_info usr;
-		usr.name = vs[1];
-		usr.pwd = vs[2];
-		if(wesql.Login(usr))
-		{
-			if(-1 == send(sockfd, "Success", BUFSIZ, 0))
-				myErr("login send success failed");
-		}
-		else
-		{
-			if(-1 == send(sockfd, "Fail", BUFSIZ, 0))
-				myErr("login send fail failed");
-		}
-	}
-	else if("register" == vs[0])
-	{
-		register_info usr;
-		usr.name = vs[1];
-		usr.pwd = vs[2];
-		usr.email = vs[3];
-		usr.sex = vs[4];
-		usr.age = vs[5];
-		if(wesql.Register(usr))
-		{
-			if(-1 == send(sockfd, "Success", BUFSIZ, 0))
-				myErr("register send success failed");
-		}
-		else
-		{
-			if(-1 == send(sockfd, "Fail", BUFSIZ, 0))
-				myErr("register send fail failed");
-		}
-	}
-	else if("chat" == vs[0])
-	{
-		cout<<"welcome to chat room"<<endl;
+		if(-1 == send(sockfd, "Success", BUFSIZ, 0))
+			myErr("login send success failed");
 	}
 	else
-		;
+	{
+		if(-1 == send(sockfd, "Fail", BUFSIZ, 0))
+			myErr("login send fail failed");
+	}
+}
+
+void Register(int sockfd, vector<string> vs)
+{
+	register_info usr;
+	usr.name = vs[1];
+	usr.pwd = vs[2];
+	usr.email = vs[3];
+	usr.sex = vs[4];
+	usr.age = vs[5];
+	if(wesql.Register(usr))
+	{
+		if(-1 == send(sockfd, "Success", BUFSIZ, 0))
+			myErr("return register_success failed");
+	}
+	else
+	{
+		if(-1 == send(sockfd, "Fail", BUFSIZ, 0))
+			myErr("return register_fail failed");
+	}
+}
+
+void Chat(int sockfd, vector<string> vs)
+{
+	// 为了能发消息给vs[1],读取name=vs[1]的对象此刻数据库中存放的fd
+	string from = wesql.FindNameFromAddr(sockfd);
+	string msg = "<" + from + ">:" + vs[2];
+	if("all" == vs[1])
+	{
+		list<int>::iterator it;
+    	for(it = cs.begin(); it != cs.end(); it++)
+			if(sockfd != *it && (-1 == send(*it, msg.c_str(), BUFSIZ, 0)))// 广播不要发给自己
+				myErr("chat all send fail");
+	}
+	else
+	{
+		int to = atoi(wesql.FindAddrFromName(vs[1]).c_str());
+		if(-1 == send(to, msg.c_str(), BUFSIZ, 0))
+			myErr("chat send fail");
+	}
 }

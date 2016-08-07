@@ -62,8 +62,8 @@ int main(int ac, char *av[])
 	int listener = make_server_socket(IP, PORT);
 	int event_cnt;
 
-	if(-1 == (epfd = epoll_create(EPOLL_SIZE)))
-		myErr("create epoll failed");
+	Try(epfd = epoll_create(EPOLL_SIZE))
+
 	epoll_event events[EPOLL_SIZE];
 	epfd_add(epfd, listener, true);		// epoll中注册服务器fd
 
@@ -71,8 +71,7 @@ int main(int ac, char *av[])
 	{
 		// -1: epoll_wait will return when events occured
 		// 0: epoll_wait will return immediately, deprecated
-		if(-1 == (event_cnt = epoll_wait(epfd, events, EPOLL_SIZE, -1)))
-			myErr("epoll wait failed");
+		Try((event_cnt = epoll_wait(epfd, events, EPOLL_SIZE, -1)))
 
 		for(int i = 0; i < event_cnt; i++)
 		{
@@ -96,8 +95,7 @@ void client_connect(int sockfd)
 	sockaddr_in client_address;
 	socklen_t addrlen = sizeof(sockaddr_in);
 
-	if(-1 == (clientfd = accept(sockfd, (sockaddr *)&client_address, &addrlen)))
-		myErr("accept failed");
+	Try((clientfd = accept(sockfd, (sockaddr *)&client_address, &addrlen)))
 	cs.push_back(clientfd);
 	epfd_add(epfd, clientfd, true);
 
@@ -114,7 +112,7 @@ void client_message(int sockfd)
 	int len = recv(sockfd, buf, BUFSIZ, 0);
 	if(0 > len)
 	{
-		myErr("client_message recv failed");
+		myErr;
 	}
 	else if(0 == len)
 	{
@@ -134,11 +132,13 @@ void client_message(int sockfd)
 void message_route(int sockfd, vector<string> vs)
 {
 	if(0 == vs.size())
-		myErr("message NULL");
+		myErr;
 
 	for(int i = 0; i < sizeof(service)/sizeof(service[0]); i++)
 		if(service[i].cmd == vs[0])
-			service[i].func(sockfd, vs);
+			{service[i].func(sockfd, vs); return;}
+	
+	Try(send(sockfd, "undefined cmd", BUFSIZ, 0))
 }
 
 void Login(int sockfd, vector<string> vs)
@@ -147,15 +147,9 @@ void Login(int sockfd, vector<string> vs)
 	usr.name = vs[1];
 	usr.pwd = vs[2];
 	if(wesql.Login(usr, sockfd))		// 传入clientfd更新数据库信息,用于聊天
-	{
-		if(-1 == send(sockfd, "Success", BUFSIZ, 0))
-			myErr("login send success failed");
-	}
+		Try(send(sockfd, "Success", BUFSIZ, 0))
 	else
-	{
-		if(-1 == send(sockfd, "Fail", BUFSIZ, 0))
-			myErr("login send fail failed");
-	}
+		Try(send(sockfd, "Fail", BUFSIZ, 0))
 }
 
 void Register(int sockfd, vector<string> vs)
@@ -167,15 +161,9 @@ void Register(int sockfd, vector<string> vs)
 	usr.sex = vs[4];
 	usr.age = vs[5];
 	if(wesql.Register(usr))
-	{
-		if(-1 == send(sockfd, "Success", BUFSIZ, 0))
-			myErr("return register_success failed");
-	}
+		Try(send(sockfd, "Success", BUFSIZ, 0))
 	else
-	{
-		if(-1 == send(sockfd, "Fail", BUFSIZ, 0))
-			myErr("return register_fail failed");
-	}
+		Try(send(sockfd, "Fail", BUFSIZ, 0))
 }
 
 void Chat(int sockfd, vector<string> vs)
@@ -187,13 +175,12 @@ void Chat(int sockfd, vector<string> vs)
 	{
 		list<int>::iterator it;
     	for(it = cs.begin(); it != cs.end(); it++)
-			if(sockfd != *it && (-1 == send(*it, msg.c_str(), BUFSIZ, 0)))// 广播不要发给自己
-				myErr("chat all send fail");
+			if(sockfd != *it)
+				Try(send(*it, msg.c_str(), BUFSIZ, 0))// 广播不要发给自己
 	}
 	else
 	{
 		int to = atoi(wesql.FindAddrFromName(vs[1]).c_str());
-		if(-1 == send(to, msg.c_str(), BUFSIZ, 0))
-			myErr("chat send fail");
+		Try(send(to, msg.c_str(), BUFSIZ, 0))
 	}
 }

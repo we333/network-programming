@@ -20,27 +20,21 @@
 int main(int ac, char *av[])
 {
 	bool living = true;
+	pid_t pid;
 	int sockfd = make_client_socket(IP, PORT);
 	int epfd, event_cnt, pipe_fd[2];
 	char msg[BUFSIZ]; bzero(msg, BUFSIZ);
 
-	if(-1 == pipe(pipe_fd))
-		myErr("pipe failed");
+	Try(pipe(pipe_fd))
 
-	if(-1 == (epfd = epoll_create(EPOLL_SIZE)))
-		myErr("create epoll failed");
+	Try(epfd = epoll_create(EPOLL_SIZE))
 
 	struct epoll_event events[2];
 	epfd_add(epfd, sockfd, true);
 	epfd_add(epfd, pipe_fd[0], true);
 
-	pid_t pid = fork();
-
-	if(0 > pid)
-	{
-		myErr("fork failed");
-	}
-	else if(0 == pid)	// 子进程 write 1
+	Try(pid = fork())
+	if(0 == pid)	// 子进程 write 1
 	{
 		close(pipe_fd[0]);
 		while(living)
@@ -50,10 +44,7 @@ int main(int ac, char *av[])
 			if(0 == strncasecmp(msg, "exit", strlen("exit")))
 				living = false;
 			else
-			{
-				if(-1 == write(pipe_fd[1], msg, strlen(msg)-1))
-					myErr("write failed");
-			}
+				Try(write(pipe_fd[1], msg, strlen(msg)-1))
 		}
 		close(pipe_fd[1]);
 	}
@@ -62,33 +53,23 @@ int main(int ac, char *av[])
 		close(pipe_fd[1]);
 		while(living)
 		{
-			if(-1 == (event_cnt = epoll_wait(epfd, events, EPOLL_SIZE, -1)))
-				myErr("epoll wait failed");
-
+			Try(event_cnt = epoll_wait(epfd, events, EPOLL_SIZE, -1))
 			for(int i = 0; i < event_cnt; i++)
 			{
+				int ret;
 				bzero(msg, BUFSIZ);
 				if(sockfd == events[i].data.fd)
 				{
-					int ret = recv(sockfd, msg, BUFSIZ, 0);
-					if(-1 == ret)
-					{
-						myErr("recv failed");
-					}
-					else if(0 == ret)
-					{
-						cout<<"server closed"<<endl;
-						living = false;
-					}
-					else
-						cout<<msg<<endl;
+					Try(recv(sockfd, msg, BUFSIZ, 0));
+					if(0 == ret)	living = false;
+					else 			cout<<msg<<endl;	
 				}
 				else 	// read msg from stdin
 				{
-					int ret = read(events[i].data.fd, msg, BUFSIZ);
+					Try(ret = read(events[i].data.fd, msg, BUFSIZ));
 					if(0 == ret)	living = false;
-					else
-						send(sockfd, msg, BUFSIZ, 0);
+					else 			send(sockfd, msg, BUFSIZ, 0);
+						
 				}
 			}
 		}

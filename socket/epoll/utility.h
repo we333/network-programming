@@ -22,9 +22,9 @@ using namespace std;
 #define IP ("127.0.0.1")
 #define PORT (11118)
 #define EPOLL_SIZE (4096)
-#define	myErr(x)	{perror(x); exit(-1);}
-#define Try(x)		{if(-1 == (x)) {perror("failed"); exit(-1);}}
-#define COMMAND_SPLIT ("|")
+#define	myErr	{cout<<__FUNCTION__<<": "<<__LINE__<<"line"<<endl; perror(" "); exit(-1);}
+#define Try(x)	{if(-1 == (x)) myErr;}
+#define SPLIT ("|")
 
 int epfd;			// epoll fd
 list<int> cs;		// 保存client_fd
@@ -42,7 +42,7 @@ void child_waiter(int num)
 vector<string> split(char *buf)
 {
 	vector<string> vs;
-	const char *d = COMMAND_SPLIT;
+	const char *d = SPLIT;
 	char *p = strtok(buf, d);
 
 	while(p)

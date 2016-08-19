@@ -40,6 +40,8 @@ void message_route(int sockfd, vector<string> vs);
 	void Login(int sockfd, vector<string> vs);
 	void Register(int sockfd, vector<string> vs);
 	void Chat(int sockfd, vector<string> vs);
+	void Search(int sockfd, vector<string> vs);
+	void Upload(int sockfd, vector<string> vs);
 
 typedef struct
 {
@@ -52,6 +54,8 @@ Service service[] =
 	{"login", 		Login},
 	{"register", 	Register},
 	{"chat",		Chat},
+	{"search",		Search},
+	{"upload", 		Upload},
 };
 
 int main(int ac, char *av[])
@@ -136,7 +140,7 @@ void message_route(int sockfd, vector<string> vs)
 
 	for(int i = 0; i < sizeof(service)/sizeof(service[0]); i++)
 		if(service[i].cmd == vs[0])
-			{service[i].func(sockfd, vs); return;}
+			{service[i].func(sockfd, vs); return;}	// command route
 	
 	Try(send(sockfd, "undefined cmd", BUFSIZ, 0))
 }
@@ -183,4 +187,35 @@ void Chat(int sockfd, vector<string> vs)
 		int to = atoi(wesql.FindAddrFromName(vs[1]).c_str());
 		Try(send(to, msg.c_str(), BUFSIZ, 0))
 	}
+}
+
+void Search(int sockfd, vector<string> vs)
+{
+	vector<string> name;
+	search_info info;
+	info.time = vs[1];
+	info.start = vs[2];
+	info.end = vs[3];
+
+	name = wesql.Search(info);
+
+	vector<string>::iterator it;
+	for(it = name.begin(); it != name.end(); it++)	// bug 由于client的epoll监听是同一事件,连续send两次消息,client也只能处理一次消息
+		Try(send(sockfd, (*it).c_str(), BUFSIZ, 0));
+}
+
+void Upload(int sockfd, vector<string> vs)
+{
+	carpool_info info;
+	info.name = vs[1];
+	info.time = vs[2];
+	info.start = vs[3];
+	info.end = vs[4];
+	info.price = vs[5];
+	info.seat = vs[6];
+	info.comment = vs[7];
+	if(wesql.Upload(info))
+		Try(send(sockfd, "Success", BUFSIZ, 0))
+	else
+		Try(send(sockfd, "Fail", BUFSIZ, 0))
 }

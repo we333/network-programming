@@ -1,5 +1,6 @@
 /*
 	MySQL cmd
+	CREATE TABLE table_name (column_name column_type);
 	新增一列: alter table userinfo add column addr varchar(20) not null;
 	更新数据: udate userinfo set login="NO" where name='we';
 
@@ -42,6 +43,24 @@ typedef struct
 	string sex;
 	string age;
 }register_info;
+
+typedef struct
+{
+	string time;
+	string start;
+	string end;
+}search_info;
+
+typedef struct
+{
+	string name;
+	string time;
+	string start;
+	string end;
+	string price;
+	string seat;
+	string comment;
+}carpool_info;
 
 class WeSQL
 {
@@ -123,6 +142,32 @@ public:
 
 		return true;
 	};
+	vector<string> Search(search_info info)	// 乘客->根据time start end查询拼车信息
+	{
+		vector<string> list;
+		pstmt = conn->prepareStatement("SELECT name FROM userinfo where time=(?) and start=(?) and end=(?)");
+		pstmt->setString(1, info.time);
+		pstmt->setString(2, info.start);
+		pstmt->setString(3, info.end);
+		res = pstmt->executeQuery();
+		while (res->next())					// 如果存在此拼车信息,则返回true
+			if(NULL != res)
+				list.push_back(res->getString("name"));
+		return list;
+	};
+	bool Upload(carpool_info info)	// 车主->提交自己拼车信息
+	{
+		pstmt = conn->prepareStatement("UPDATE userinfo set time=(?), start=(?), end=(?), price=(?), seat=(?), comment=(?) where name=(?)");
+		pstmt->setString(1, info.time);
+		pstmt->setString(2, info.start);
+		pstmt->setString(3, info.end);
+		pstmt->setString(4, info.price);
+		pstmt->setString(5, info.seat);
+		pstmt->setString(6, info.comment);
+		pstmt->setString(7, info.name);
+		res = pstmt->executeQuery();
+		return true;
+	};
 	string FindAddrFromName(string name)	// 通过name判断聊天信息发往何处(fd)
 	{
 		string addr;
@@ -139,7 +184,7 @@ public:
 		string name;
 		stringstream tmp; 
 		tmp<<sockfd; 
-		tmp>>addr;
+		tmp>>addr;		// int trans to string
 		pstmt = conn->prepareStatement("SELECT * FROM userinfo where addr=(?)");
 		pstmt->setString(1, addr);
 		res = pstmt->executeQuery();

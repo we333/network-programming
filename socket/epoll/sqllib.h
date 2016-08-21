@@ -46,7 +46,7 @@ typedef struct
 
 typedef struct
 {
-	string time;
+	string date;
 	string start;
 	string end;
 }search_info;
@@ -54,7 +54,7 @@ typedef struct
 typedef struct
 {
 	string name;
-	string time;
+	string date;
 	string start;
 	string end;
 	string price;
@@ -64,28 +64,29 @@ typedef struct
 
 class WeSQL
 {
-public:
+private:
 	Driver *driver;
 	Connection *conn;
 	Statement *stmt;
 	ResultSet *res;
 	PreparedStatement *pstmt;
-	
+public:	
 	WeSQL()
 	{
 		driver = get_driver_instance();
 		conn = driver->connect(SQL_ADDRESS, SQL_USER, SQL_PASSWORD); 
-		conn->setSchema("bt");
+		conn->setSchema("carpool");
 		stmt = conn->createStatement();
 	}
-	bool Create_table()
+	~WeSQL(){	cout<<"析构函数执行完毕"<<endl;};
+/*	bool Create_table()
 	{
 		stmt = conn->createStatement();
 		stmt->execute("DROP TABLE IF EXISTS userinfo");
 		stmt->execute("CREATE TABLE userinfo(id int primary key, name varchar(20), pwd varchar(20), email varchar(50), sex varchar(2), age varchar(2))");
 		stmt->execute("alter table userinfo change id id int auto_increment;");
 		return true;
-	}
+	}	*/
 	bool ClearAddr(int addr)	// 用户退出时,必须要清理用户本次登录时记录到数据库的addr为-1	
 	{
 		pstmt = conn->prepareStatement("UPDATE userinfo set addr=(?) where addr=(?)");
@@ -112,9 +113,9 @@ public:
 		pstmt->setString(1, usr.name);
 		pstmt->setString(2, usr.pwd);
 		res = pstmt->executeQuery();
-		while (res->next())					// 如果存在此name & pwd的用户,则返回true
-			if(NULL == res)
-				return false;
+
+		if(!res->next())	// user is not exist
+			return false;
 
 		UpdateAddr(usr.name, addr);
 		return true;
@@ -125,40 +126,49 @@ public:
 		pstmt->setString(1, usr.name);
 		pstmt->setString(2, usr.email);
 		res = pstmt->executeQuery();
-		while (res->next())	
-			if(NULL != res)
-				return false;	// 如果存在此name | email的用户,则返回false
+		
+		if(res->next())	
+			return false;	// 如果存在此name | email的用户,则返回false
 
-		// 没有被注册过,添加此用户到数据库
-		pstmt = conn->prepareStatement("INSERT INTO userinfo(id, name, pwd, email, sex, age, addr) VALUES (?,?,?,?,?,?,?)");
-	    pstmt->setInt(1,16);		// BUG: 不录入id会报错,还需要录入id时自动获取自增id值
-	    pstmt->setString(2, usr.name);
-	    pstmt->setString(3, usr.pwd);
-	    pstmt->setString(4, usr.email);
-	    pstmt->setString(5, usr.sex);
-	    pstmt->setString(6, usr.age);
-	    pstmt->setString(7, SQL_INIT_ADDR);
+		pstmt = conn->prepareStatement("INSERT INTO userinfo(name, pwd, email, addr) VALUES (?,?,?,?)");
+	//    pstmt->setInt(1,16);		// BUG: 不录入id会报错,还需要录入id时自动获取自增id值
+	    pstmt->setString(1, usr.name);
+	    pstmt->setString(2, usr.pwd);
+	    pstmt->setString(3, usr.email);
+	    pstmt->setString(4, SQL_INIT_ADDR);
 	    pstmt->executeUpdate();
 
 		return true;
 	};
-	vector<string> Search(search_info info)	// 乘客->根据time start end查询拼车信息
+	vector<string> Search(search_info info)	// 乘客->根据date start end查询拼车信息
 	{
 		vector<string> list;
-		pstmt = conn->prepareStatement("SELECT name FROM userinfo where time=(?) and start=(?) and end=(?)");
-		pstmt->setString(1, info.time);
+		pstmt = conn->prepareStatement("SELECT name, email, date, start, end, price, seat, comment FROM userinfo where date=(?) and start=(?) and end=(?)");
+		pstmt->setString(1, info.date);
 		pstmt->setString(2, info.start);
 		pstmt->setString(3, info.end);
 		res = pstmt->executeQuery();
-		while (res->next())					// 如果存在此拼车信息,则返回true
+
+		while(res->next())					// 如果存在此拼车信息,则返回true
+		{
 			if(NULL != res)
+			{
 				list.push_back(res->getString("name"));
+				list.push_back(res->getString("email"));
+				list.push_back(res->getString("date"));
+				list.push_back(res->getString("start"));
+				list.push_back(res->getString("end"));
+				list.push_back(res->getString("price"));
+				list.push_back(res->getString("seat"));
+				list.push_back(res->getString("comment"));
+			}
+		}
 		return list;
 	};
 	bool Upload(carpool_info info)	// 车主->提交自己拼车信息
 	{
-		pstmt = conn->prepareStatement("UPDATE userinfo set time=(?), start=(?), end=(?), price=(?), seat=(?), comment=(?) where name=(?)");
-		pstmt->setString(1, info.time);
+		pstmt = conn->prepareStatement("UPDATE userinfo set date=(?), start=(?), end=(?), price=(?), seat=(?), comment=(?) where name=(?)");
+		pstmt->setString(1, info.date);
 		pstmt->setString(2, info.start);
 		pstmt->setString(3, info.end);
 		pstmt->setString(4, info.price);
@@ -188,11 +198,11 @@ public:
 		pstmt = conn->prepareStatement("SELECT * FROM userinfo where addr=(?)");
 		pstmt->setString(1, addr);
 		res = pstmt->executeQuery();
+		
     	while(res->next())		// 获取结果必须使用while()
 			name = res->getString("name");
 		return name;
 	};
-	~WeSQL(){	cout<<"析构函数执行完毕"<<endl;};
 };
 
 WeSQL wesql;

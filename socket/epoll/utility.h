@@ -6,9 +6,11 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/epoll.h>
+#include <sys/sendfile.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
@@ -19,12 +21,13 @@
 
 using namespace std;
 
-#define IP ("127.0.0.1")
-#define PORT (11118)
-#define EPOLL_SIZE (4096)
-#define	myErr	{cout<<__FUNCTION__<<": "<<__LINE__<<"line"<<endl; perror(" "); exit(-1);}
-#define Try(x)	{if(-1 == (x)) myErr;}
-#define SPLIT ("|")
+#define IP 			("192.168.11.5")
+#define PORT 		(11118)
+#define EPOLL_SIZE 	(4096)
+#define	myErr		{cout<<__FUNCTION__<<": "<<__LINE__<<" line"<<endl; perror(" "); /*exit(-1);*/}
+#define Try(x)		{if(-1 == (x)) myErr;}
+#define SPLIT 		("|")
+#define FILE_PATH 	("static/")
 
 int epfd;			// epoll fd
 list<int> cs;		// 保存client_fd
@@ -100,9 +103,14 @@ int make_client_socket(const char *ip, int port)
 	return client_socket;
 }
 
-void set_noblocking(int fd)
+void set_unblocking(int fd)
 {
 	fcntl(fd, F_SETFL, fcntl(fd, F_GETFD, 0) | O_NONBLOCK);
+}
+
+void set_blocking(int fd)
+{
+	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) & ~O_NONBLOCK);
 }
 
 void epfd_add(int epollfd, int fd, bool et)
@@ -114,7 +122,7 @@ void epfd_add(int epollfd, int fd, bool et)
 		event.events |= EPOLLET;	// edge triggered	
 	epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
 
-	set_noblocking(fd);
+	set_unblocking(fd);
 }
 
 void epfd_del(int epollfd, int fd)

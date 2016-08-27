@@ -42,6 +42,9 @@ void message_route(int sockfd, vector<string> vs);
 	void Chat(int sockfd, vector<string> vs);
 	void Search(int sockfd, vector<string> vs);
 	void Upload(int sockfd, vector<string> vs);
+	void Send_file_to_client(int sockfd, vector<string> vs);
+	void Recv_file_from_client(int sockfd, vector<string> vs);
+void client_reply(int sockfd, string reply);
 
 typedef struct
 {
@@ -51,11 +54,13 @@ typedef struct
 
 Service service[] = 
 {
-	{"login", 		Login},
-	{"register", 	Register},
-	{"chat",		Chat},
-	{"search",		Search},
-	{"upload", 		Upload},
+	{"login", 		Login 					},
+	{"register", 	Register 				},
+	{"chat",		Chat 					},
+	{"search",		Search 					},
+	{"upload", 		Upload 					},
+	{"pullfile",	Send_file_to_client		},
+	{"pushfile",	Recv_file_from_client	},
 };
 
 int main(int ac, char *av[])
@@ -128,9 +133,8 @@ void client_message(int sockfd)
 		wesql.ClearAddr(sockfd);
 	}
 	else
-	{
 		message_route(sockfd, split(buf));
-	}
+
 }
 
 void message_route(int sockfd, vector<string> vs)
@@ -138,11 +142,15 @@ void message_route(int sockfd, vector<string> vs)
 	if(0 == vs.size())
 		myErr;
 
+	for(int i = 0; i < vs.size(); i++)
+		cout<<"param["<<i<<"] = "<<vs[i]<<endl;
+	cout<<"---------------------"<<endl;
+
 	for(int i = 0; i < sizeof(service)/sizeof(service[0]); i++)
 		if(service[i].cmd == vs[0])
 			{service[i].func(sockfd, vs); return;}	// command route
 	
-	Try(send(sockfd, "undefined cmd", BUFSIZ, 0))
+	client_reply(sockfd, "undefined\n");
 }
 
 void Login(int sockfd, vector<string> vs)
@@ -151,9 +159,9 @@ void Login(int sockfd, vector<string> vs)
 	usr.name = vs[1];
 	usr.pwd = vs[2];
 	if(wesql.Login(usr, sockfd))		// 传入clientfd更新数据库信息,用于聊天
-		Try(send(sockfd, "login success", BUFSIZ, 0))
+		client_reply(sockfd, "success\n");
 	else
-		Try(send(sockfd, "login fail", BUFSIZ, 0))
+		client_reply(sockfd, "fail\n");
 }
 
 void Register(int sockfd, vector<string> vs)
@@ -163,9 +171,9 @@ void Register(int sockfd, vector<string> vs)
 	usr.pwd = vs[2];
 	usr.email = vs[3];
 	if(wesql.Register(usr))
-		Try(send(sockfd, "register success", BUFSIZ, 0))
+		client_reply(sockfd, "success\n");
 	else
-		Try(send(sockfd, "register fail", BUFSIZ, 0))
+		client_reply(sockfd, "fail\n");
 }
 
 void Chat(int sockfd, vector<string> vs)
@@ -178,12 +186,12 @@ void Chat(int sockfd, vector<string> vs)
 		list<int>::iterator it;
     	for(it = cs.begin(); it != cs.end(); it++)
 			if(sockfd != *it)
-				Try(send(*it, msg.c_str(), BUFSIZ, 0))// 广播不要发给自己
+				client_reply(*it, msg.c_str());	// 广播不要发给自己
 	}
 	else
 	{
 		int to = atoi(wesql.FindAddrFromName(vs[1]).c_str());
-		Try(send(to, msg.c_str(), BUFSIZ, 0))
+		client_reply(to, msg.c_str());
 	}
 }
 
@@ -198,14 +206,14 @@ void Search(int sockfd, vector<string> vs)
 	db_res = wesql.Search(info);
 
 	if(0 == db_res.size())
-		Try(send(sockfd, "no search results", BUFSIZ, 0));
+		client_reply(sockfd, "noresults\n");
 
 	string msg;
 	vector<string>::iterator it;
 	for(it = db_res.begin(); it != db_res.end(); it++)	// bug 由于client的epoll监听是同一事件,连续send两次消息,client也只能处理一次消息
 		msg += *it + '|';
 
-	Try(send(sockfd, msg.c_str(), BUFSIZ, 0));
+	client_reply(sockfd, msg.c_str());
 }
 
 void Upload(int sockfd, vector<string> vs)
@@ -219,7 +227,50 @@ void Upload(int sockfd, vector<string> vs)
 	info.seat = vs[6];
 	info.comment = vs[7];
 	if(wesql.Upload(info))
-		Try(send(sockfd, "upload success", BUFSIZ, 0))
+		client_reply(sockfd, "success\n");
 	else
-		Try(send(sockfd, "upload fail", BUFSIZ, 0))
+		client_reply(sockfd, "fail\n");
+}
+
+void Send_file_to_client(int sockfd, vector<string> vs)
+{
+	string filename = FILE_PATH + vs[1] + "." + vs[2];
+	int fd = open(filename.c_str(), O_RDONLY);
+
+	struct stat stat_buf;
+	fstat(fd, &stat_buf);
+
+	usleep(1);
+	Try(sendfile(sockfd, fd, NULL, stat_buf.st_size))
+}
+
+void Recv_file_from_client(int sockfd, vector<string> vs)
+{
+	set_blocking(sockfd);
+
+	FILE *f;
+	string filename = FILE_PATH + vs[1] + "." + vs[2];
+	char buf[BUFSIZ]; bzero(buf, BUFSIZ);
+
+	if(NULL == (f = fopen(filename.c_str(), "wb+")))
+		myErr;
+
+	int len = 0;
+	while(len = recv(sockfd, buf, BUFSIZ, 0))
+	{
+		cout<<"recv "<<len<<" bytes"<<endl;
+		if(len < 0)	myErr;
+		if(len > fwrite(buf, sizeof(char), len, f))
+			myErr;
+	}
+	cout<<"recv file finished"<<endl;
+	cout<<"---------------------"<<endl;
+	fclose(f);
+
+	set_unblocking(sockfd);
+}
+
+void client_reply(int sockfd, string reply)
+{
+	Try(send(sockfd, reply.c_str(), BUFSIZ, 0))
 }

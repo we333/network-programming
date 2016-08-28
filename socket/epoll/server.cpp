@@ -29,6 +29,7 @@ void message_route(int sockfd, vector<string> vs);
 	void Chat(int sockfd, vector<string> vs);
 	void Search(int sockfd, vector<string> vs);
 	void Upload(int sockfd, vector<string> vs);
+	void Booking(int sockfd, vector<string> vs);
 	void Send_file_to_client(int sockfd, vector<string> vs);
 	void Recv_file_from_client(int sockfd, vector<string> vs);
 void client_reply(int sockfd, string reply);
@@ -47,6 +48,7 @@ Service sv[] =
 	{"chat",		3,	Chat 					},
 	{"search",		4,	Search 					},
 	{"upload", 		8,	Upload 					},
+	{"booking",		5,	Booking 				},
 	{"pullfile",	3,	Send_file_to_client		},
 	{"pushfile",	3,	Recv_file_from_client	},
 };
@@ -56,7 +58,7 @@ int main(int ac, char *av[])
 	signal(SIGCHLD, child_waiter);
 	cs.clear();		// 清理客户信息
 
-	int listener = make_server_socket(IP, PORT);
+	int listener = make_server_socket(av[1], PORT);
 	int event_cnt;
 
 	Try(epfd = epoll_create(EPOLL_SIZE))
@@ -216,6 +218,20 @@ void Upload(int sockfd, vector<string> vs)
 	info.seat = vs[6];
 	info.comment = vs[7];
 	if(wesql.Upload(info))
+		client_reply(sockfd, "success\n");
+	else
+		client_reply(sockfd, "fail\n");
+}
+
+void Booking(int sockfd, vector<string> vs)
+{
+	booking_info info;
+	info.name = vs[1];
+	info.date = vs[2];
+	info.start = vs[3];
+	info.end = vs[4];
+
+	if(wesql.Booking(info))
 		client_reply(sockfd, "success\n");
 	else
 		client_reply(sockfd, "fail\n");

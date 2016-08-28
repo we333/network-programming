@@ -21,7 +21,7 @@ int main(int ac, char *av[])
 {
 	bool living = true;
 	pid_t pid;
-	int sockfd = make_client_socket(IP, PORT);
+	int sockfd = make_client_socket(av[1], PORT);
 	int epfd, event_cnt, pipe_fd[2];
 	char msg[BUFSIZ]; bzero(msg, BUFSIZ);
 

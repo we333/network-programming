@@ -189,7 +189,7 @@ public:
 
 		int i_seat = atoi(seat.c_str());
 		if(0 == i_seat)	return false;
-		i_seat--;
+		i_seat -= 1;	// donot use i_seat--
 
 		stringstream tmp; 
 		tmp<<i_seat; 

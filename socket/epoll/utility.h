@@ -21,10 +21,8 @@
 
 using namespace std;
 
-#define IP 			("192.168.11.22")
-//#define IP 			("localhost")
+#define IP 			("192.168.1.102")
 //#define IP 			("210.129.54.191")
-//#define IP 				("127.0.0.1")
 #define PORT 		(11111)
 #define EPOLL_SIZE 	(4096)
 #define	myErr		{cout<<__FUNCTION__<<": "<<__LINE__<<" line"<<endl; perror(" "); exit(-1);}

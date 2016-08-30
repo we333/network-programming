@@ -1,8 +1,8 @@
 /*
 	MySQL cmd
 	CREATE TABLE table_name (column_name column_type);
-	新增一列: alter table userinfo add column addr varchar(20) not null;
-	更新数据: udate userinfo set login="NO" where name='we';
+	add: alter table userinfo add column addr varchar(20) not null;
+	update: udate userinfo set login="NO" where name='we';
 
 */
 
@@ -86,7 +86,7 @@ public:
 		conn->setSchema("carpool");
 		stmt = conn->createStatement();
 	}
-	~WeSQL(){	cout<<"析构函数执行完毕"<<endl;};
+	~WeSQL(){	cout<<"destruct WeSQL"<<endl;};
 /*	bool Create_table()
 	{
 		stmt = conn->createStatement();
@@ -95,27 +95,27 @@ public:
 		stmt->execute("alter table userinfo change id id int auto_increment;");
 		return true;
 	}	*/
-	bool ClearAddr(int addr)	// 用户退出时,必须要清理用户本次登录时记录到数据库的addr为-1	
+	bool ClearAddr(int addr)					// init chat_addr as -1 when sign out
 	{
 		pstmt = conn->prepareStatement("UPDATE userinfo set addr=(?) where addr=(?)");
 		char c_addr[10];
-		snprintf(c_addr, 10, "%d", addr);		// int的fd转换为char,保存到数据库
+		snprintf(c_addr, 10, "%d", addr);		// int_fd to char
 		pstmt->setString(1, SQL_INIT_ADDR);
 		pstmt->setString(2, c_addr);
 		res = pstmt->executeQuery();
 		return true;
 	}
-	bool UpdateAddr(string name, int addr)	// 更新用户本次登录时打开的fd,便于之后聊天
+	bool UpdateAddr(string name, int addr)		// update user's chat_addr for chat
 	{
 		pstmt = conn->prepareStatement("UPDATE userinfo set addr=(?) where name=(?)");
 		char c_addr[10];
-		snprintf(c_addr, 10, "%d", addr);	// int的fd转换为char,保存到数据库
+		snprintf(c_addr, 10, "%d", addr);
 		pstmt->setString(1, c_addr);
 		pstmt->setString(2, name);
 		res = pstmt->executeQuery();
 		return true;
 	}
-	bool Login(login_info& usr, int addr)	// addr是client此次登录时server打开的fd
+	bool Login(login_info& usr, int addr)		// addr = sockfd
 	{
 		pstmt = conn->prepareStatement("SELECT name, pwd FROM userinfo where name=(?) and pwd=(?)");
 		pstmt->setString(1, usr.name);
@@ -128,7 +128,7 @@ public:
 		UpdateAddr(usr.name, addr);
 		return true;
 	}
-	bool Register(register_info& usr)		// 确认此用户名或邮箱是否已经注册过,然后添加到数据库
+	bool Register(register_info& usr)
 	{	
 		pstmt = conn->prepareStatement(("SELECT name, email FROM userinfo where name=(?) or email=(?)"));
 		pstmt->setString(1, usr.name);
@@ -136,10 +136,10 @@ public:
 		res = pstmt->executeQuery();
 		
 		if(res->next())	
-			return false;	// 如果存在此name | email的用户,则返回false
+			return false;
 
 		pstmt = conn->prepareStatement("INSERT INTO userinfo(name, pwd, email, addr) VALUES (?,?,?,?)");
-	//    pstmt->setInt(1,16);		// BUG: 不录入id会报错,还需要录入id时自动获取自增id值
+	//    pstmt->setInt(1,16);		// BUG: insert id into DB
 	    pstmt->setString(1, usr.name);
 	    pstmt->setString(2, usr.pwd);
 	    pstmt->setString(3, usr.email);
@@ -148,7 +148,7 @@ public:
 
 		return true;
 	};
-	vector<string> Search(search_info info)	// 乘客->根据date start end查询拼车信息
+	vector<string> Search(search_info info)
 	{
 		vector<string> list;
 		pstmt = conn->prepareStatement("SELECT name, email, date, start, end, price, seat, comment FROM userinfo where date=(?) and start=(?) and end=(?)");
@@ -157,7 +157,7 @@ public:
 		pstmt->setString(3, info.end);
 		res = pstmt->executeQuery();
 
-		while(res->next())					// 如果存在此拼车信息,则返回true
+		while(res->next())
 		{
 			if(NULL != res)
 			{
@@ -183,16 +183,16 @@ public:
 		pstmt->setString(4, info.end);
 		res = pstmt->executeQuery();
 
-		while(res->next())	// booking info is not exist
+		while(res->next())
 			if(NULL != res)
 				seat = res->getString("seat");
 
 		int i_seat = atoi(seat.c_str());
 		if(0 == i_seat)	return false;
-		i_seat -= 1;	// donot use i_seat--
+		i_seat -= 1;		// donot use i_seat--
 
-		stringstream tmp; 
-		tmp<<i_seat; 
+		stringstream tmp;
+		tmp<<i_seat;
 		tmp>>seat;
 		pstmt = conn->prepareStatement("UPDATE userinfo set seat=(?) where name=(?) and date=(?) and start=(?) and end=(?)");
 		pstmt->setString(1, seat);
@@ -204,7 +204,7 @@ public:
 
 		return true;
 	};
-	bool Upload(carpool_info info)	// 车主->提交自己拼车信息
+	bool Upload(carpool_info info)
 	{
 		pstmt = conn->prepareStatement("UPDATE userinfo set date=(?), start=(?), end=(?), price=(?), seat=(?), comment=(?) where name=(?)");
 		pstmt->setString(1, info.date);
@@ -217,17 +217,17 @@ public:
 		res = pstmt->executeQuery();
 		return true;
 	};
-	string FindAddrFromName(string name)	// 通过name判断聊天信息发往何处(fd)
+	string FindAddrFromName(string name)	// detect chat destination by name
 	{
 		string addr;
 		pstmt = conn->prepareStatement("SELECT * FROM userinfo where name=(?)");
 		pstmt->setString(1, name);
 		res = pstmt->executeQuery();
-    	while(res->next())		// 获取结果必须使用while()
+    	while(res->next())
 			addr = res->getString("addr");
 		return addr;
 	};
-	string FindNameFromAddr(int sockfd)		// 通过fd判断当前发言的人是谁
+	string FindNameFromAddr(int sockfd)		// detect chat source by sockfd
 	{
 		string addr;
 		string name;
@@ -238,7 +238,7 @@ public:
 		pstmt->setString(1, addr);
 		res = pstmt->executeQuery();
 		
-    	while(res->next())		// 获取结果必须使用while()
+    	while(res->next())
 			name = res->getString("name");
 		return name;
 	};

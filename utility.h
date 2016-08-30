@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include <vector>
 #include <string.h>
 
@@ -31,7 +32,7 @@ using namespace std;
 #define FILE_PATH 	("static/")
 
 int epfd;			// epoll fd
-list<int> cs;		// 保存client_fd
+list<int> cs;		// save client_fd
 
 void child_waiter(int num)
 {
@@ -66,8 +67,7 @@ int make_server_socket(const char *ip, int port)
 	if(-1 == (server_socket = socket(AF_INET, SOCK_STREAM, 0)))
 		myErr("server socket failed");
 
-	// 使linux允许server断开后,绑定的port可以立即被再次使用
-	if (-1 == setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)))
+	if (-1 == setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)))	// reuse port
         myErr("setsockopt failed");
 
 	sockaddr_in addr;

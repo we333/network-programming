@@ -1,29 +1,25 @@
 /*
-	1.注册SIGNAL用于子进程回收
-	2.绑定ip和port,获得listener
-	3.epoll-->添加监听listener
+	1.register SIGNAL: recover child progress
+	2.bind ip & port, get server_fd
+	3.epoll-->monitor server_fd
 	4.while(1)
-		等待epoll返回监听事件数量(非阻塞),然后轮询处理各个fd
+		epoll_wait() return number of IO(unblocking)
 		|
-		|--服务器自身fd-->处理新连接的客户(添加eproll_event,添加客户数组)
+		|--server_fd--> new client (add it into eproll_event & cs)
 		|
-		|--客户fd-->recv
+		|--client_fd--> recv client_msg
 					|
-					|--> =0,客户断开连接-->关闭fd,客户数组剔除,epoll_event剔除
+					|--> =0, client exit
 					|
-					|--> >0,接收客户的消息并处理(fork)
-*/
-
-/*
-	
+					|--> >0, response
 */
 
 #include "utility.h"
 #include "sqllib.h"
 
 void client_connect(int sockfd);
-void client_message(int sockfd);
-void message_route(int sockfd, vector<string> vs);
+void *client_response(void *arg);
+void response_router(int sockfd, vector<string> vs);
 	void Login(int sockfd, vector<string> vs);
 	void Register(int sockfd, vector<string> vs);
 	void Chat(int sockfd, vector<string> vs);
@@ -33,6 +29,11 @@ void message_route(int sockfd, vector<string> vs);
 	void Send_file_to_client(int sockfd, vector<string> vs);
 	void Recv_file_from_client(int sockfd, vector<string> vs);
 void client_reply(int sockfd, string reply);
+
+typedef struct
+{
+	int sockfd;
+}WorkArg;
 
 typedef struct
 {
@@ -56,7 +57,7 @@ Service sv[] =
 int main(int ac, char *av[])
 {
 	signal(SIGCHLD, child_waiter);
-	cs.clear();		// 清理客户信息
+	cs.clear();		// clean client's fd for chat
 
 	int listener = make_server_socket(IP, PORT);
 	int event_cnt;
@@ -64,7 +65,7 @@ int main(int ac, char *av[])
 	Try(epfd = epoll_create(EPOLL_SIZE))
 
 	epoll_event events[EPOLL_SIZE];
-	epfd_add(epfd, listener, true);		// epoll中注册服务器fd
+	epfd_add(epfd, listener, true);		// register fd into epoll with ET mode
 
 //	daemon(0,0);
 
@@ -81,7 +82,12 @@ int main(int ac, char *av[])
 			if(sockfd == listener)
 				client_connect(sockfd);
 			else
-				client_message(sockfd);	
+			{
+				pthread_t thread;
+				WorkArg arg;
+				arg.sockfd = sockfd;
+				pthread_create(&thread, NULL, client_response, (void *)&arg);
+			}
 		}
 	}
 
@@ -100,14 +106,15 @@ void client_connect(int sockfd)
 	cs.push_back(clientfd);
 	epfd_add(epfd, clientfd, true);
 
-	printf("client connection from: %s : % d(IP : port), clientfd = %d \n",
+	printf("client : %s : % d(IP : port), fd = %d \n",
     		inet_ntoa(client_address.sin_addr),
     		ntohs(client_address.sin_port),
     		clientfd);
 }
 
-void client_message(int sockfd)
+void *client_response(void *arg)
 {
+	int sockfd = ((WorkArg *)arg)->sockfd;
 	int len;
 	char buf[BUFSIZ]; bzero(buf, BUFSIZ);
 	
@@ -117,16 +124,14 @@ void client_message(int sockfd)
 		cout<<"******client exit******"<<endl;
 		cs.remove(sockfd);
 		close(sockfd);
-		epfd_del(epfd, sockfd);		// 不再监视离开的用户的fd
-		// 一旦下线,用于聊天的addr也清空为-1
-		wesql.ClearAddr(sockfd);
+		epfd_del(epfd, sockfd);		// donot monitor sign out usr
+		wesql.ClearAddr(sockfd);	// init chat_addr which has been sign out
 	}
 	else
-		message_route(sockfd, split(buf));
-
+		response_router(sockfd, split(buf));
 }
 
-void message_route(int sockfd, vector<string> vs)
+void response_router(int sockfd, vector<string> vs)
 {
 	for(int i = 0; i < vs.size(); i++)
 		cout<<"param["<<i<<"] = "<<vs[i]<<endl;
@@ -149,10 +154,8 @@ void Login(int sockfd, vector<string> vs)
 	login_info usr;
 	usr.name = vs[1];
 	usr.pwd = vs[2];
-	if(wesql.Login(usr, sockfd))		// 传入clientfd更新数据库信息,用于聊天
-		client_reply(sockfd, "success\n");
-	else
-		client_reply(sockfd, "fail\n");
+	
+	client_reply(sockfd, wesql.Login(usr, sockfd) ? "success\n":"fail\n"); // chat_addr will be set if sign in success
 }
 
 void Register(int sockfd, vector<string> vs)
@@ -161,28 +164,28 @@ void Register(int sockfd, vector<string> vs)
 	usr.name = vs[1];
 	usr.pwd = vs[2];
 	usr.email = vs[3];
-	if(wesql.Register(usr))
-		client_reply(sockfd, "success\n");
-	else
-		client_reply(sockfd, "fail\n");
+	
+	client_reply(sockfd, wesql.Register(usr) ? "success\n":"fail\n");
 }
 
 void Chat(int sockfd, vector<string> vs)
 {
-	// 为了能发消息给vs[1],读取name=vs[1]的对象此刻数据库中存放的fd
-	string from = wesql.FindNameFromAddr(sockfd);
-	string msg = "<" + from + ">:" + vs[2];
+	string from = wesql.FindNameFromAddr(sockfd);	// get user's chat_addr
+	string msg = "<" + from + ">:" + vs[2] + '\n';
 	if("all" == vs[1])
 	{
 		list<int>::iterator it;
     	for(it = cs.begin(); it != cs.end(); it++)
 			if(sockfd != *it)
-				client_reply(*it, msg.c_str());	// 广播不要发给自己
+				client_reply(*it, msg.c_str());		// broadcast, donot send to myself
 	}
 	else
 	{
 		int to = atoi(wesql.FindAddrFromName(vs[1]).c_str());
-		client_reply(to, msg.c_str());
+		if(-1 == to)
+			client_reply(sockfd, "user unlogin\n");
+		else
+			client_reply(to, msg.c_str());
 	}
 }
 
@@ -195,9 +198,8 @@ void Search(int sockfd, vector<string> vs)
 	info.end = vs[3];
 
 	db_res = wesql.Search(info);
-
 	if(0 == db_res.size())
-		client_reply(sockfd, "noresults\n");
+		{client_reply(sockfd, "noresults\n"); return;}
 
 	string msg;
 	vector<string>::iterator it;
@@ -218,6 +220,7 @@ void Upload(int sockfd, vector<string> vs)
 	info.price = vs[5];
 	info.seat = vs[6];
 	info.comment = vs[7];
+	
 	if(wesql.Upload(info))
 		client_reply(sockfd, "success\n");
 	else
@@ -247,7 +250,7 @@ void Send_file_to_client(int sockfd, vector<string> vs)
 	fstat(fd, &stat_buf);
 
 	usleep(1);
-	Try(sendfile(sockfd, fd, NULL, stat_buf.st_size))
+	Try(sendfile(sockfd, fd, NULL, stat_buf.st_size))	// sendfile: zero copy by kernel
 }
 
 void Recv_file_from_client(int sockfd, vector<string> vs)

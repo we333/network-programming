@@ -26,8 +26,8 @@ void response_router(int sockfd, vector<string> vs);
 	void Search(int sockfd, vector<string> vs);
 	void Upload(int sockfd, vector<string> vs);
 	void Booking(int sockfd, vector<string> vs);
-	void Send_file_to_client(int sockfd, vector<string> vs);
-	void Recv_file_from_client(int sockfd, vector<string> vs);
+	void SendFile(int sockfd, vector<string> vs);
+	void RecvFile(int sockfd, vector<string> vs);
 void client_reply(int sockfd, string reply);
 
 typedef struct
@@ -44,14 +44,14 @@ typedef struct
 
 Service sv[] = 
 {
-	{"login", 		3,	Login 					},
-	{"register", 	4,	Register 				},
-	{"chat",		3,	Chat 					},
-	{"search",		4,	Search 					},
-	{"upload", 		8,	Upload 					},
-	{"booking",		5,	Booking 				},
-	{"pullfile",	3,	Send_file_to_client		},
-	{"pushfile",	3,	Recv_file_from_client	},
+	{"login", 		3,	Login 		},
+	{"register", 	4,	Register 	},
+	{"chat",		3,	Chat 		},
+	{"search",		4,	Search 		},
+	{"upload", 		8,	Upload 		},
+	{"booking",		5,	Booking 	},
+	{"pullfile",	3,	SendFile	},
+	{"pushfile",	3,	RecvFile	},
 };
 
 int main(int ac, char *av[])
@@ -221,10 +221,7 @@ void Upload(int sockfd, vector<string> vs)
 	info.seat = vs[6];
 	info.comment = vs[7];
 	
-	if(wesql.Upload(info))
-		client_reply(sockfd, "success\n");
-	else
-		client_reply(sockfd, "fail\n");
+	client_reply(sockfd, wesql.Upload(info) ? "success\n":"fail\n");
 }
 
 void Booking(int sockfd, vector<string> vs)
@@ -235,13 +232,10 @@ void Booking(int sockfd, vector<string> vs)
 	info.start = vs[3];
 	info.end = vs[4];
 
-	if(wesql.Booking(info))
-		client_reply(sockfd, "success\n");
-	else
-		client_reply(sockfd, "fail\n");
+	client_reply(sockfd, wesql.Booking(info) ? "success\n":"fail\n");
 }
 
-void Send_file_to_client(int sockfd, vector<string> vs)
+void SendFile(int sockfd, vector<string> vs)
 {
 	string filename = FILE_PATH + vs[1] + "." + vs[2];
 	int fd = open(filename.c_str(), O_RDONLY);
@@ -253,7 +247,7 @@ void Send_file_to_client(int sockfd, vector<string> vs)
 	Try(sendfile(sockfd, fd, NULL, stat_buf.st_size))	// sendfile: zero copy by kernel
 }
 
-void Recv_file_from_client(int sockfd, vector<string> vs)
+void RecvFile(int sockfd, vector<string> vs)
 {
 	set_blocking(sockfd);
 

@@ -1,18 +1,3 @@
-/*
-	1.register SIGNAL: recover child progress
-	2.bind ip & port, get server_fd
-	3.epoll-->monitor server_fd
-	4.while(1)
-		epoll_wait() return number of IO(unblocking)
-		|
-		|--server_fd--> new client (add it into eproll_event & cs)
-		|
-		|--client_fd--> recv client_msg
-					|
-					|--> =0, client exit
-					|
-					|--> >0, response
-*/
 
 #include "utility.h"
 #include "sqllib.h"
@@ -32,8 +17,18 @@ void client_reply(int sockfd, string reply);
 
 typedef struct
 {
-	int sockfd;
-}WorkArg;
+	pid_t pid;
+	int pipefd[2];
+}IPC;
+IPC ipc[CHILD_PROCESS_NUM];
+
+typedef struct
+{
+	sockaddr_in addr;
+	char buf[BUFSIZ];
+}client_data;
+
+int sig_pipefd[2];			// 统一事件源
 
 typedef struct
 {
@@ -54,39 +49,151 @@ Service sv[] =
 	{"pushfile",	3,	RecvFile	},
 };
 
+void sig_handler(int msg)
+{
+	send(sig_pipefd[WRITE], (char *)&msg, 1, 0);
+}
+
+void child_run(int id)
+{
+	epoll_event events[EPOLL_MAX_EVENT];
+	int child_epfd = epoll_create(5);
+	int pipefd = ipc[id].pipefd[READ];
+	epfd_add(child_epfd, pipefd, true);
+
+	//sig_add()
+
+	bool stop_child = false;
+	client_data *users = new client_data[USER_MAX_NUM];
+
+	cout<<"child goto work"<<endl;
+
+	while(!stop_child)
+	{
+		int number = epoll_wait(child_epfd, events, EPOLL_MAX_EVENT, -1);
+		
+		for(int i = 0; i < number; i++)
+		{
+			int sockfd = events[i].data.fd;
+			if(sockfd == pipefd && events[i].events & EPOLLIN)
+			{
+				int pick = 1;
+				int ret = recv(sockfd, (char *)&pick, sizeof(pick), 0);
+				if(0 == ret)
+				{
+					cout<<"stop child"<<endl;
+				//	stop_child = true;	//??
+				}
+				else
+				{
+					struct sockaddr_in client_addr;
+					socklen_t client_addr_length = sizeof(client_addr);
+					int conn = accept(sockfd, (struct sockaddr *)&client_addr, &client_addr_length);
+					users[conn].addr = client_addr;
+					epfd_add(child_epfd, conn, true);
+					cout<<"child accept new client"<<endl;
+				}
+			}
+			else if(events[i].events & EPOLLIN)
+			{
+			//	while(1)
+				{
+					int ret = recv(sockfd, users[sockfd].buf, BUFSIZ, 0);
+					if(0 < ret)
+					{
+						if(errno == EAGAIN)
+						{
+							cout<<"read later"<<endl;
+							break;
+						}
+						epfd_del(child_epfd, sockfd);
+						close(sockfd);
+						break;
+					}
+					else if(0 == ret)
+					{
+						epfd_del(child_epfd, sockfd);
+						close(sockfd);
+						break;
+					}
+					else
+					{
+						cout<<"client :"<<users[sockfd].buf<<endl;
+
+					}
+				}
+			}
+			else
+				;
+		}
+	}
+}
+
 int main(int ac, char *av[])
 {
-	signal(SIGCHLD, child_waiter);
-	cs.clear();		// clean client's fd for chat
-
+	int ret = 0;
 	int listener = make_server_socket(IP, PORT);
-	int event_cnt;
+	
+	for(int i = 0; i < CHILD_PROCESS_NUM; i++)
+	{
+		socketpair(AF_UNIX, SOCK_STREAM, 0, ipc[i].pipefd);
 
-	Try(epfd = epoll_create(EPOLL_SIZE))
+		ipc[i].pid = fork();
+		if(ipc[i].pid > 0)
+		{
+			close(ipc[i].pipefd[READ]);
+			set_unblocking(ipc[i].pipefd[WRITE]);
+			continue;
+		}
+		else
+		{
+			close(ipc[i].pipefd[WRITE]);
+			set_unblocking(ipc[i].pipefd[READ]);
+			child_run(i);
+			exit(0);
+		}
+	}
 
-	epoll_event events[EPOLL_SIZE];
+	Try(epfd = epoll_create(5))
+	epoll_event events[EPOLL_MAX_EVENT];
 	epfd_add(epfd, listener, true);		// register fd into epoll with ET mode
+
+//	统一事件源,socket和signal都在epolls_wait中处理
+	socketpair(AF_UNIX, SOCK_STREAM, 0, sig_pipefd);
+	set_unblocking(sig_pipefd[WRITE]);
+	epfd_add(epfd, sig_pipefd[READ], true);
+
+	sig_add(SIGCHLD, sig_handler);
+	sig_add(SIGTERM, sig_handler);
+	sig_add(SIGPIPE, SIG_IGN);
+
+	bool stop_server = false;
+	int child_id = 0;
 
 //	daemon(0,0);
 
-	while(1)
+	int event_cnt;
+	while(!stop_server)
 	{
-		// -1: epoll_wait will return when events occured
-		// 0: epoll_wait will return immediately, deprecated
-		Try((event_cnt = epoll_wait(epfd, events, EPOLL_SIZE, -1)))
+		Try((event_cnt = epoll_wait(epfd, events, EPOLL_MAX_EVENT, -1)))
 
 		for(int i = 0; i < event_cnt; i++)
 		{
 			int sockfd = events[i].data.fd;
 
 			if(sockfd == listener)
-				client_connect(sockfd);
-			else
 			{
-				pthread_t thread;
-				WorkArg arg;
-				arg.sockfd = sockfd;
-				pthread_create(&thread, NULL, client_response, (void *)&arg);
+				int call = 1;
+				cout<<"new client"<<endl;
+				send(ipc[child_id].pipefd[WRITE], (char *)&call, sizeof(call), 0);
+				child_id++;
+				child_id %= CHILD_PROCESS_NUM;
+			}
+			else if(sockfd == sig_pipefd[READ] && events[i].events & EPOLLIN)
+			{
+				char buf[BUFSIZ]; bzero(buf, BUFSIZ);
+				recv(sig_pipefd[READ], buf, BUFSIZ, 0);
+				cout<<"main process recv sig"<<endl;
 			}
 		}
 	}
@@ -114,7 +221,7 @@ void client_connect(int sockfd)
 
 void *client_response(void *arg)
 {
-	int sockfd = ((WorkArg *)arg)->sockfd;
+	int sockfd = 0;
 	int len;
 	char buf[BUFSIZ]; bzero(buf, BUFSIZ);
 	
@@ -128,7 +235,7 @@ void *client_response(void *arg)
 		wesql.ClearAddr(sockfd);	// init chat_addr which has been sign out
 	}
 	else
-		response_router(sockfd, split(buf));
+		response_router(sockfd, split(buf, TOKEN));
 }
 
 void response_router(int sockfd, vector<string> vs)

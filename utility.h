@@ -22,14 +22,19 @@
 
 using namespace std;
 
-#define IP 			("192.168.68.211")
+//#define IP 			("192.168.68.211")	// ubuntu
+#define IP 			("192.168.68.134")		// centOS
 //#define IP 			("210.129.54.191")
 #define PORT 		(11111)
-#define EPOLL_SIZE 	(4096)
+#define EPOLL_MAX_EVENT 	(4096)
 #define	myErr		{cout<<__FUNCTION__<<": "<<__LINE__<<" line"<<endl; perror(" "); exit(-1);}
 #define Try(x)		{if(-1 == (x)) myErr;}
-#define SPLIT 		("|")
+#define TOKEN 		("|")
 #define FILE_PATH 	("static/")
+#define CHILD_PROCESS_NUM	(5)
+#define READ 		(0)
+#define WRITE		(0)
+#define USER_MAX_NUM 	(65535)
 
 int epfd;			// epoll fd
 list<int> cs;		// save client_fd
@@ -44,16 +49,16 @@ void child_waiter(int num)
     	cout<<"child over"<<endl;
 }
 
-vector<string> split(char *buf)
+vector<string> split(char *buf, const char *token)
 {
 	vector<string> vs;
-	const char *d = SPLIT;
-	char *p = strtok(buf, d);
+	char *p;
+	char *ptr = strtok_r(buf, token, &p);
 
 	while(p)
 	{
 		vs.push_back(p);
-		p = strtok(NULL, d);
+		p = strtok_r(NULL, token, &p);
 	}
 	
 	return vs;
@@ -88,8 +93,6 @@ int make_server_socket(const char *ip, int port)
 int make_client_socket(const char *ip, int port)
 {
 	int client_socket;
-
-	cout<<"ip = "<<ip<<endl;
 
 	if(-1 == (client_socket = socket(AF_INET, SOCK_STREAM, 0)))
 		myErr("client socket failed");
@@ -135,6 +138,16 @@ void epfd_del(int epollfd, int fd)
 	event.events = EPOLLIN;			// fd read enable
 
 	epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, &event);
+}
+
+void sig_add(int sig, void (* handler)(int), bool restart = true)
+{
+	struct sigaction sa;
+	bzero(&sa, sizeof(sa));
+	if(restart)
+		sa.sa_flags |= SA_RESTART;
+	sigfillset(&sa.sa_mask);
+	sigaction(sig, &sa, NULL);
 }
 
 #endif

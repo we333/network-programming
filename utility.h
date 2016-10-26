@@ -25,7 +25,7 @@ using namespace std;
 //#define IP 			("192.168.68.211")	// ubuntu
 #define IP 			("192.168.68.134")		// centOS
 //#define IP 			("210.129.54.191")
-#define PORT 		(11111)
+#define PORT 		(11115)
 #define EPOLL_MAX_EVENT 	(4096)
 #define	myErr		{cout<<__FUNCTION__<<": "<<__LINE__<<" line"<<endl; perror(" "); exit(-1);}
 #define Try(x)		{if(-1 == (x)) myErr;}
@@ -33,7 +33,7 @@ using namespace std;
 #define FILE_PATH 	("static/")
 #define CHILD_PROCESS_NUM	(5)
 #define READ 		(0)
-#define WRITE		(0)
+#define WRITE		(1)
 #define USER_MAX_NUM 	(65535)
 
 int epfd;			// epoll fd

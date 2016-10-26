@@ -27,7 +27,7 @@ int main(int ac, char *av[])
 
 	Try(pipe(pipe_fd))
 
-	Try(epfd = epoll_create(EPOLL_SIZE))
+	Try(epfd = epoll_create(EPOLL_MAX_EVENT))
 
 	struct epoll_event events[2];
 	epfd_add(epfd, sockfd, true);
@@ -53,7 +53,7 @@ int main(int ac, char *av[])
 		close(pipe_fd[1]);
 		while(living)
 		{
-			Try(event_cnt = epoll_wait(epfd, events, EPOLL_SIZE, -1))
+			Try(event_cnt = epoll_wait(epfd, events, EPOLL_MAX_EVENT, -1))
 			for(int i = 0; i < event_cnt; i++)
 			{
 				int ret;

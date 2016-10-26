@@ -37,6 +37,8 @@ typedef struct
 	void (*func)(int, vector<string>);
 }Service;
 
+int listener;
+
 Service sv[] = 
 {
 	{"login", 		3,	Login 		},
@@ -70,25 +72,39 @@ void child_run(int id)
 
 	while(!stop_child)
 	{
+		cout<<"pid = "<<getpid()<<endl;
 		int number = epoll_wait(child_epfd, events, EPOLL_MAX_EVENT, -1);
-		
+		cout<<"number = "<<number<<endl;
 		for(int i = 0; i < number; i++)
 		{
+			cout<<"111111 "<<endl;
 			int sockfd = events[i].data.fd;
-			if(sockfd == pipefd && events[i].events & EPOLLIN)
+			if((sockfd == pipefd) && (events[i].events & EPOLLIN))
 			{
-				int pick = 1;
-				int ret = recv(sockfd, (char *)&pick, sizeof(pick), 0);
-				if(0 == ret)
+				int pick = 0;
+			/*	int ret = recv(sockfd, (char *)&pick, sizeof(pick), 0);
+				if(ret < 0 && errno != EAGAIN)
+				{
+					cout<<"errno"<<endl;
+					perror(" ");
+				}
+				else if(0 == ret)
 				{
 					cout<<"stop child"<<endl;
 				//	stop_child = true;	//??
+					continue;
 				}
-				else
+				else	*/
 				{
-					struct sockaddr_in client_addr;
+					cout<<"2222222222"<<endl;
+					struct sockaddr_in client_addr; bzero(&client_addr, sizeof(client_addr));
 					socklen_t client_addr_length = sizeof(client_addr);
-					int conn = accept(sockfd, (struct sockaddr *)&client_addr, &client_addr_length);
+					int conn = accept(listener, (struct sockaddr *)&client_addr, &client_addr_length);
+					if(conn == -1)
+					{
+						cout<<"fuck"<<endl;
+						perror(" ");
+					}
 					users[conn].addr = client_addr;
 					epfd_add(child_epfd, conn, true);
 					cout<<"child accept new client"<<endl;
@@ -96,35 +112,41 @@ void child_run(int id)
 			}
 			else if(events[i].events & EPOLLIN)
 			{
+				cout<<"333333333"<<endl;
 			//	while(1)
 				{
-					int ret = recv(sockfd, users[sockfd].buf, BUFSIZ, 0);
-					if(0 < ret)
+					char buf[BUFSIZ]; bzero(buf, BUFSIZ);
+			//		int ret = recv(sockfd, users[sockfd].buf, BUFSIZ, 0);
+					int ret;
+					Try(ret = recv(sockfd, buf, BUFSIZ, 0))
+					if(0 > ret)
 					{
 						if(errno == EAGAIN)
 						{
 							cout<<"read later"<<endl;
 							break;
 						}
+						perror("recv failed: ");
 						epfd_del(child_epfd, sockfd);
 						close(sockfd);
 						break;
 					}
 					else if(0 == ret)
 					{
+						cout<<"recv = 0"<<endl;
 						epfd_del(child_epfd, sockfd);
 						close(sockfd);
 						break;
 					}
 					else
 					{
-						cout<<"client :"<<users[sockfd].buf<<endl;
+						cout<<"client :"<<buf<<endl;
 
 					}
 				}
 			}
 			else
-				;
+				cout<<"99999999999"<<endl;
 		}
 	}
 }
@@ -132,12 +154,12 @@ void child_run(int id)
 int main(int ac, char *av[])
 {
 	int ret = 0;
-	int listener = make_server_socket(IP, PORT);
+	listener = make_server_socket(IP, PORT);
 	
 	for(int i = 0; i < CHILD_PROCESS_NUM; i++)
 	{
-		socketpair(AF_UNIX, SOCK_STREAM, 0, ipc[i].pipefd);
-
+		Try(socketpair(PF_UNIX, SOCK_STREAM, 0, ipc[i].pipefd))
+	
 		ipc[i].pid = fork();
 		if(ipc[i].pid > 0)
 		{
@@ -159,7 +181,7 @@ int main(int ac, char *av[])
 	epfd_add(epfd, listener, true);		// register fd into epoll with ET mode
 
 //	统一事件源,socket和signal都在epolls_wait中处理
-	socketpair(AF_UNIX, SOCK_STREAM, 0, sig_pipefd);
+	Try(socketpair(AF_UNIX, SOCK_STREAM, 0, sig_pipefd))
 	set_unblocking(sig_pipefd[WRITE]);
 	epfd_add(epfd, sig_pipefd[READ], true);
 
@@ -169,8 +191,6 @@ int main(int ac, char *av[])
 
 	bool stop_server = false;
 	int child_id = 0;
-
-//	daemon(0,0);
 
 	int event_cnt;
 	while(!stop_server)
@@ -185,11 +205,12 @@ int main(int ac, char *av[])
 			{
 				int call = 1;
 				cout<<"new client"<<endl;
-				send(ipc[child_id].pipefd[WRITE], (char *)&call, sizeof(call), 0);
+				Try(send(ipc[i].pipefd[WRITE], (char *)&call, sizeof(call), 0))
 				child_id++;
 				child_id %= CHILD_PROCESS_NUM;
 			}
-			else if(sockfd == sig_pipefd[READ] && events[i].events & EPOLLIN)
+			else if((sockfd == sig_pipefd[READ]) 
+				&& (events[i].events & EPOLLIN))
 			{
 				char buf[BUFSIZ]; bzero(buf, BUFSIZ);
 				recv(sig_pipefd[READ], buf, BUFSIZ, 0);

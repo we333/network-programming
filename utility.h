@@ -27,12 +27,12 @@ using namespace std;
 //#define IP 			("210.129.54.191")
 #define PORT 		(11115)
 #define MAX_EPOLL_EVENT_NUM 	(4096)
-#define	log_error	{cout<<__FUNCTION__<<": "<<__LINE__<<" line"<<endl; perror(" "); exit(-1);}
-#define CHK_ERROR(x)	{if(0 > (x))		log_error;}
-#define CHK_NULL(x)		{if(NULL == (x))	log_error;}
+#define	ERROR_EXIT	{cout<<__FUNCTION__<<": "<<__LINE__<<" line"<<endl; perror(" "); exit(-1);}
+#define CHK_ERROR(x)	{if(0 > (x))		ERROR_EXIT;}
+#define CHK_NULL(x)		{if(NULL == (x))	ERROR_EXIT;}
 #define TOKEN 		("|")
 #define FILE_PATH 	("static/")
-#define MAX_CHILD_PROCESS_NUM	(5)
+#define MAX_CHILD_PROCESS_NUM	(1)
 #define READ 		(0)
 #define WRITE		(1)
 #define USER_MAX_NUM 	(65535)
@@ -77,7 +77,7 @@ int make_client_socket(const char *ip, int port)
 	int client_socket;
 
 	if(-1 == (client_socket = socket(AF_INET, SOCK_STREAM, 0)))
-		log_error("client socket failed");
+		ERROR_EXIT("client socket failed");
 
 	sockaddr_in addr;
 	bzero((void *)&addr, sizeof(addr));
@@ -86,7 +86,7 @@ int make_client_socket(const char *ip, int port)
 	addr.sin_addr.s_addr = inet_addr(ip);
 
 	if(-1 == connect(client_socket, (sockaddr *)&addr, sizeof(sockaddr_in)))
-		log_error("connect failed");
+		ERROR_EXIT("connect failed");
 
 	return client_socket;
 }
@@ -124,10 +124,12 @@ void sig_add(int sig, void (* handler)(int), bool restart = true)
 {
 	struct sigaction sa;
 	bzero(&sa, sizeof(sa));
+
+	sa.sa_handler = handler;
 	if(restart)
-		sa.sa_flags |= SA_RESTART;
-	sigfillset(&sa.sa_mask);
-	sigaction(sig, &sa, NULL);
+	;//	sa.sa_flags |= SA_RESTART;
+	CHK_ERROR(sigfillset(&sa.sa_mask));
+	CHK_ERROR(sigaction(sig, &sa, NULL));
 }
 
 #endif

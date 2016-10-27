@@ -12,7 +12,8 @@ void sig_handler(int msg);
 void polling_allocate_task();
 
 void child_run(int id);
-void child_task_over(int id);
+void child_task_over(int sig);
+void child_killed(int sig);
 void client_connect(int sockfd);
 void response_router(int sockfd, vector<string> str);
 	void req_login(int sockfd, vector<string>& str);
@@ -21,9 +22,9 @@ void response_router(int sockfd, vector<string> str);
 	void req_search(int sockfd, vector<string>& str);
 	void req_upload(int sockfd, vector<string>& str);
 	void req_booking(int sockfd, vector<string>& str);
-	void req_sendFile(int sockfd, vector<string>& str);
-	void req_recvFile(int sockfd, vector<string>& str);
-void client_reply(int sockfd, string reply);
+	void req_sendfile(int sockfd, vector<string>& str);
+	void req_recvfile(int sockfd, vector<string>& str);
+void response_reply(int sockfd, string reply);
 
 
 typedef struct
@@ -34,17 +35,12 @@ typedef struct
 
 typedef struct
 {
-	sockaddr_in addr;
-	char buf[BUFSIZ];
-}client_data;
-
-typedef struct
-{
 	string cmd;
 	int size;
 	void (*func)(int, vector<string>&);
 }Request;
 
+bool child_stop = false;
 int listener;
 int sig_pipefd[2];			// 统一事件源
 internal_process_communication childs[MAX_CHILD_PROCESS_NUM];
@@ -57,8 +53,8 @@ Request request[] =
 	{"search",		4,	req_search 		},
 	{"upload", 		8,	req_upload 		},
 	{"booking",		5,	req_booking 	},
-	{"pullfile",	3,	req_sendFile	},
-	{"pushfile",	3,	req_recvFile	},
+	{"pullfile",	3,	req_sendfile	},
+	{"pushfile",	3,	req_recvfile	},
 };
 
 int main(int ac, char *av[])
@@ -67,13 +63,17 @@ int main(int ac, char *av[])
 	init_child_process();
 	init_epoll();
 	init_signal();
+
+cout<<"main process pid = "<<getpid()<<endl;
 	
-	bool stop_server = false;
-	while(!stop_server)
+	bool server_stop = false;
+	while(!server_stop)
 	{
+cout<<"epoll waiting"<<endl;
 		int event_cnt;
 		CHK_ERROR(event_cnt = epoll_wait(epfd, events, MAX_EPOLL_EVENT_NUM, -1));
 
+cout<<"epoll wait ok"<<endl;
 		for(int i = 0; i < event_cnt; i++)
 		{
 			int sockfd = events[i].data.fd;
@@ -82,7 +82,7 @@ int main(int ac, char *av[])
 			{
 				polling_allocate_task();
 			}
-			else if((sockfd == sig_pipefd[READ]) && (events[i].events & EPOLLIN))
+			else if((sockfd == sig_pipefd[READ]))// && (events[i].events & EPOLLIN))
 			{
 cout<<"signal coming"<<endl;
 				int ret = 0;
@@ -183,6 +183,7 @@ void init_signal()
 
 void sig_handler(int msg)
 {
+	cout<<"sig_handler enter!!!!!!!!"<<endl;
 	CHK_ERROR(send(sig_pipefd[WRITE], (char *)&msg, 1, 0));
 }
 
@@ -202,14 +203,15 @@ void child_run(int id)
 	int pipefd = childs[id].pipefd[READ];
 	epfd_add(child_epfd, pipefd);
 
-	//sig_add()
+	sig_add(SIGTERM, child_killed);
+	sig_add(SIGCHLD, child_task_over);
 
-	bool stop_child = false;
-	client_data *users = new client_data[USER_MAX_NUM];
+	bool child_stop = false;
 
-	while(!stop_child)
+	while(!child_stop)
 	{
 		cout<<"pid = "<<childs[id].pid<<endl;
+		
 		int number = epoll_wait(child_epfd, events, MAX_EPOLL_EVENT_NUM, -1);
 		for(int i = 0; i < number; i++)
 		{
@@ -224,13 +226,13 @@ void child_run(int id)
 				CHK_ERROR(conn = accept(listener, (struct sockaddr *)&addr, &addr_len));
 
 				cs.push_back(conn);
-				users[conn].addr = addr;
 				epfd_add(child_epfd, conn);
 			}
 			else if(events[i].events & EPOLLIN)
 			{
-				int ret;
-				CHK_ERROR(ret = recv(sockfd, users[sockfd].buf, BUFSIZ, 0));
+				char buf[BUFSIZ]; 
+				bzero(buf, BUFSIZ);
+				int ret = recv(sockfd, buf, BUFSIZ, 0);
 				if(0 > ret)
 				{
 					if(errno == EAGAIN)
@@ -238,10 +240,8 @@ void child_run(int id)
 						cout<<"read later"<<endl;
 						break;
 					}
-					epfd_del(child_epfd, sockfd);
-					close(sockfd);
-					perror("recv failed: ");
-					break;
+					
+					child_stop = true;
 				}
 				else if(0 == ret)
 				{
@@ -253,7 +253,7 @@ void child_run(int id)
 				}
 				else
 				{
-					response_router(sockfd, split(users[sockfd].buf));
+					response_router(sockfd, split(buf));
 				}
 				
 			}
@@ -261,17 +261,27 @@ void child_run(int id)
 				cout<<"99999999999"<<endl;
 		}
 	}
+
+	close(pipefd);
+	close(child_epfd);
 }
 
-void child_task_over(int id)
+void child_task_over(int sig)
 {
+cout<<"child_task_over____"<<endl;
 	int status;
     waitpid(-1, &status, WNOHANG);   
     if(!WIFEXITED(status))
-    	log_error;
+    	ERROR_EXIT;
 #ifdef DEBUG
     cout<<"child task over!"<<endl;
 #endif
+}
+
+void child_killed(int sig)
+{
+cout<<"child_killed____"<<endl;
+	child_stop = true;
 }
 
 void client_connect(int sockfd)
@@ -304,12 +314,12 @@ void response_router(int sockfd, vector<string> str)
 	{	
 		if(request[i].cmd == str[0])
 		{
-			if(str.size() != request[i].size)		// number of parameter is incorrect
-				return client_reply(sockfd, REPLY_INVALID);
+			if(str.size() != request[i].size)			// number of parameter is incorrect
+				return response_reply(sockfd, REPLY_INVALID);
 			return request[i].func(sockfd, str);		// valid command, action it
 		}
 	}
-	client_reply(sockfd, REPLY_UNDEFINED);			// undefined command
+	response_reply(sockfd, REPLY_UNDEFINED);			// undefined command
 }
 
 void req_login(int sockfd, vector<string>& str)
@@ -319,7 +329,7 @@ void req_login(int sockfd, vector<string>& str)
 	usr.pwd = str[2];
 
 	// chat_addr will be set if sign in success
-	client_reply(sockfd, wesql.Login(usr, sockfd) ? REPLY_SUCCESS : REPLY_FAILED);
+	response_reply(sockfd, wesql.Login(usr, sockfd) ? REPLY_SUCCESS : REPLY_FAILED);
 }
 
 void req_register(int sockfd, vector<string>& str)
@@ -329,7 +339,7 @@ void req_register(int sockfd, vector<string>& str)
 	usr.pwd = str[2];
 	usr.email = str[3];
 	
-	client_reply(sockfd, wesql.Register(usr) ? REPLY_SUCCESS : REPLY_FAILED);
+	response_reply(sockfd, wesql.Register(usr) ? REPLY_SUCCESS : REPLY_FAILED);
 }
 
 void req_chat(int sockfd, vector<string>& str)
@@ -341,15 +351,15 @@ void req_chat(int sockfd, vector<string>& str)
 		list<int>::iterator it;
     	for(it = cs.begin(); it != cs.end(); it++)
 			if(sockfd != *it)
-				client_reply(*it, msg.c_str());		// broadcast, donot send to myself
+				response_reply(*it, msg.c_str());		// broadcast, donot send to myself
 	}
 	else
 	{
 		int to = atoi(wesql.FindAddrFromName(str[1]).c_str());
 		if(-1 == to)
-			client_reply(sockfd, "user unlogin\n");
+			response_reply(sockfd, "user unlogin\n");
 		else
-			client_reply(to, msg.c_str());
+			response_reply(to, msg.c_str());
 	}
 }
 
@@ -363,7 +373,7 @@ void req_search(int sockfd, vector<string>& str)
 
 	db_res = wesql.Search(info);
 	if(0 == db_res.size())
-		return client_reply(sockfd, REPLY_NORESULTS);
+		return response_reply(sockfd, REPLY_NORESULTS);
 
 	string msg;
 	vector<string>::iterator it;
@@ -371,7 +381,7 @@ void req_search(int sockfd, vector<string>& str)
 		msg += *it + '|';
 	msg += '\n';		// for Android recv, add '\n' at end of string !!!!
 
-	client_reply(sockfd, msg.c_str());
+	response_reply(sockfd, msg.c_str());
 }
 
 void req_upload(int sockfd, vector<string>& str)
@@ -385,7 +395,7 @@ void req_upload(int sockfd, vector<string>& str)
 	info.seat = str[6];
 	info.comment = str[7];
 	
-	client_reply(sockfd, wesql.Upload(info) ? REPLY_SUCCESS : REPLY_FAILED);
+	response_reply(sockfd, wesql.Upload(info) ? REPLY_SUCCESS : REPLY_FAILED);
 }
 
 void req_booking(int sockfd, vector<string>& str)
@@ -396,22 +406,24 @@ void req_booking(int sockfd, vector<string>& str)
 	info.start = str[3];
 	info.end = str[4];
 
-	client_reply(sockfd, wesql.Booking(info) ? REPLY_SUCCESS : REPLY_FAILED);
+	response_reply(sockfd, wesql.Booking(info) ? REPLY_SUCCESS : REPLY_FAILED);
 }
 
-void req_sendFile(int sockfd, vector<string>& str)
+void req_sendfile(int sockfd, vector<string>& str)
 {
 	string filename = FILE_PATH + str[1] + "." + str[2];
 	int fd = open(filename.c_str(), O_RDONLY);
 
+	if(-1 == fd)
+		return response_reply(sockfd,REPLY_NORESULTS);
+
 	struct stat stat_buf;
 	fstat(fd, &stat_buf);
-
 	usleep(1);
 	CHK_ERROR(sendfile(sockfd, fd, NULL, stat_buf.st_size));	// sendfile: zero copy by kernel
 }
 
-void req_recvFile(int sockfd, vector<string>& str)
+void req_recvfile(int sockfd, vector<string>& str)
 {
 	set_blocking(sockfd);
 
@@ -425,15 +437,14 @@ void req_recvFile(int sockfd, vector<string>& str)
 	{
 		CHK_ERROR(len);
 		if(len > fwrite(buf, sizeof(char), len, f))
-			log_error;
+			ERROR_EXIT;
 	}
 
 	fclose(f);
-
 	set_unblocking(sockfd);
 }
 
-void client_reply(int sockfd, string reply)
+void response_reply(int sockfd, string reply)
 {
 	CHK_ERROR(send(sockfd, reply.c_str(), BUFSIZ, 0));
 }

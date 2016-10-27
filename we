@@ -6,5 +6,5 @@
 
 g++ -o client client.cpp
 
-#g++ -o file_client file_client.cpp
+g++ -o file_client file_client.cpp
 

@@ -26,17 +26,25 @@ using namespace std;
 #define IP 			("192.168.68.134")		// centOS
 //#define IP 			("210.129.54.191")
 #define PORT 		(11115)
-#define EPOLL_MAX_EVENT 	(4096)
-#define	myErr		{cout<<__FUNCTION__<<": "<<__LINE__<<" line"<<endl; perror(" "); exit(-1);}
-#define Try(x)		{if(-1 == (x)) myErr;}
+#define MAX_EPOLL_EVENT_NUM 	(4096)
+#define	log_error	{cout<<__FUNCTION__<<": "<<__LINE__<<" line"<<endl; perror(" "); exit(-1);}
+#define CHK_ERROR(x)	{if(0 > (x))		log_error;}
+#define CHK_NULL(x)		{if(NULL == (x))	log_error;}
 #define TOKEN 		("|")
 #define FILE_PATH 	("static/")
-#define CHILD_PROCESS_NUM	(5)
+#define MAX_CHILD_PROCESS_NUM	(5)
 #define READ 		(0)
 #define WRITE		(1)
 #define USER_MAX_NUM 	(65535)
 
+#define REPLY_SUCCESS	("success\n")
+#define REPLY_NORESULTS ("noresults\n")
+#define REPLY_FAILED	("fail\n")
+#define REPLY_INVALID	("invalid\n")
+#define REPLY_UNDEFINED	("undefined\n")
+
 int epfd;			// epoll fd
+epoll_event events[MAX_EPOLL_EVENT_NUM];
 list<int> cs;		// save client_fd
 
 void child_waiter(int num)
@@ -49,45 +57,19 @@ void child_waiter(int num)
     	cout<<"child over"<<endl;
 }
 
-vector<string> split(char *buf, const char *token)
+vector<string> split(char *buf)
 {
-	vector<string> vs;
 	char *p;
-	char *ptr = strtok_r(buf, token, &p);
+	char *ptr = strtok_r(buf, TOKEN, &p);
 
-	while(p)
+	vector<string> vs;
+	while(ptr)
 	{
-		vs.push_back(p);
-		p = strtok_r(NULL, token, &p);
+		vs.push_back(ptr);
+		ptr = strtok_r(NULL, TOKEN, &p);
 	}
-	
+
 	return vs;
-}
-
-int make_server_socket(const char *ip, int port)
-{
-	int yes = 1;
-	int server_socket;
-
-	if(-1 == (server_socket = socket(AF_INET, SOCK_STREAM, 0)))
-		myErr("server socket failed");
-
-	if (-1 == setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)))	// reuse port
-        myErr("setsockopt failed");
-
-	sockaddr_in addr;
-	bzero((void *)&addr, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
-	addr.sin_addr.s_addr = inet_addr(ip);
-
-	if(-1 == bind(server_socket, (sockaddr *)&addr, sizeof(sockaddr_in)))
-		myErr("bind failed");
-
-	if(-1 == listen(server_socket, 5))
-		myErr("listen failed");
-
-	return server_socket;
 }
 
 int make_client_socket(const char *ip, int port)
@@ -95,7 +77,7 @@ int make_client_socket(const char *ip, int port)
 	int client_socket;
 
 	if(-1 == (client_socket = socket(AF_INET, SOCK_STREAM, 0)))
-		myErr("client socket failed");
+		log_error("client socket failed");
 
 	sockaddr_in addr;
 	bzero((void *)&addr, sizeof(addr));
@@ -104,7 +86,7 @@ int make_client_socket(const char *ip, int port)
 	addr.sin_addr.s_addr = inet_addr(ip);
 
 	if(-1 == connect(client_socket, (sockaddr *)&addr, sizeof(sockaddr_in)))
-		myErr("connect failed");
+		log_error("connect failed");
 
 	return client_socket;
 }
@@ -119,13 +101,11 @@ void set_blocking(int fd)
 	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) & ~O_NONBLOCK);
 }
 
-void epfd_add(int epollfd, int fd, bool et)
+void epfd_add(int epollfd, int fd)
 {
 	epoll_event event;
 	event.data.fd = fd;
-	event.events = EPOLLIN;			// fd read enable
-	if(et)
-		event.events |= EPOLLET;	// edge triggered	
+	event.events = EPOLLIN | EPOLLET;			// fd read enable & edge trigger mode
 	epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
 
 	set_unblocking(fd);

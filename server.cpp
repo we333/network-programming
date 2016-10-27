@@ -14,7 +14,7 @@ void polling_allocate_task();
 void child_run(int id);
 void child_task_over(int sig);
 void child_killed(int sig);
-void client_connect(int sockfd);
+
 void response_router(int sockfd, vector<string> str);
 	void req_login(int sockfd, vector<string>& str);
 	void req_register(int sockfd, vector<string>& str);
@@ -24,6 +24,7 @@ void response_router(int sockfd, vector<string> str);
 	void req_booking(int sockfd, vector<string>& str);
 	void req_sendfile(int sockfd, vector<string>& str);
 	void req_recvfile(int sockfd, vector<string>& str);
+	void req_debug(int sockfd, vector<string>& str);
 void response_reply(int sockfd, string reply);
 
 
@@ -55,7 +56,17 @@ Request request[] =
 	{"booking",		5,	req_booking 	},
 	{"pullfile",	3,	req_sendfile	},
 	{"pushfile",	3,	req_recvfile	},
+
+#ifdef DEBUG
+	{"debug",		1,	req_debug		},
+#endif
 };
+
+void req_debug(int sockfd, vector<string>& str)
+{
+	int msg = 1;
+	CHK_ERROR(send(sig_pipefd[WRITE], (char *)&msg, 1, 0));
+}
 
 int main(int ac, char *av[])
 {
@@ -64,16 +75,17 @@ int main(int ac, char *av[])
 	init_epoll();
 	init_signal();
 
-cout<<"main process pid = "<<getpid()<<endl;
-	
 	bool server_stop = false;
 	while(!server_stop)
-	{
-cout<<"epoll waiting"<<endl;
-		int event_cnt;
-		CHK_ERROR(event_cnt = epoll_wait(epfd, events, MAX_EPOLL_EVENT_NUM, -1));
+	{	
+		int event_cnt = epoll_wait(epfd, events, MAX_EPOLL_EVENT_NUM, -1);
+		if(event_cnt < 0)
+		{
+			if(EINTR == errno)
+				continue;
+			ERROR_EXIT;
+		}
 
-cout<<"epoll wait ok"<<endl;
 		for(int i = 0; i < event_cnt; i++)
 		{
 			int sockfd = events[i].data.fd;
@@ -82,9 +94,8 @@ cout<<"epoll wait ok"<<endl;
 			{
 				polling_allocate_task();
 			}
-			else if((sockfd == sig_pipefd[READ]))// && (events[i].events & EPOLLIN))
+			else if((sockfd == sig_pipefd[READ]) && (events[i].events & EPOLLIN))
 			{
-cout<<"signal coming"<<endl;
 				int ret = 0;
 				char signals[BUFSIZ]; bzero(signals, BUFSIZ);
 				CHK_ERROR(ret = recv(sig_pipefd[READ], signals, BUFSIZ, 0));
@@ -93,7 +104,7 @@ cout<<"signal coming"<<endl;
 					switch(signals[i])
 					{
 						case SIGCHLD:
-							
+							child_task_over(i);
 							break;
 						case SIGTERM:
 						case SIGINT:
@@ -101,6 +112,8 @@ cout<<"signal coming"<<endl;
 							{
 								cout<<"kill child "<<childs[i].pid<<endl;
 								kill(childs[i].pid, SIGTERM);
+								server_stop = true;
+								exit(0);
 							}
 							break;
 						default:
@@ -175,15 +188,14 @@ void init_signal()
 	set_unblocking(sig_pipefd[WRITE]);
 	epfd_add(epfd, sig_pipefd[READ]);
 
-	sig_add(SIGCHLD, sig_handler);
-	sig_add(SIGTERM, sig_handler);
-	sig_add(SIGINT, sig_handler);
-	sig_add(SIGPIPE, SIG_IGN);
+	sig_add(SIGCHLD, sig_handler);	// recycle child process
+	sig_add(SIGTERM, sig_handler);	// kill pid
+	sig_add(SIGINT, sig_handler);	// ctrl + c
+	sig_add(SIGPIPE, SIG_IGN);		// ignore SIGPIPE
 }
 
 void sig_handler(int msg)
 {
-	cout<<"sig_handler enter!!!!!!!!"<<endl;
 	CHK_ERROR(send(sig_pipefd[WRITE], (char *)&msg, 1, 0));
 }
 
@@ -191,8 +203,8 @@ void polling_allocate_task()
 {
 	static int polling_id = 0;
 	int call = 1;
-	CHK_ERROR(send(childs[polling_id].pipefd[WRITE], (char *)&call, sizeof(call), 0));
-	polling_id++;
+	send(childs[polling_id++].pipefd[WRITE], (char *)&call, sizeof(call), 0);
+	
 	polling_id %= MAX_CHILD_PROCESS_NUM;
 }
 
@@ -204,14 +216,9 @@ void child_run(int id)
 	epfd_add(child_epfd, pipefd);
 
 	sig_add(SIGTERM, child_killed);
-	sig_add(SIGCHLD, child_task_over);
-
-	bool child_stop = false;
 
 	while(!child_stop)
 	{
-		cout<<"pid = "<<childs[id].pid<<endl;
-		
 		int number = epoll_wait(child_epfd, events, MAX_EPOLL_EVENT_NUM, -1);
 		for(int i = 0; i < number; i++)
 		{
@@ -224,9 +231,18 @@ void child_run(int id)
 
 				int conn = 0;
 				CHK_ERROR(conn = accept(listener, (struct sockaddr *)&addr, &addr_len));
+				cout<<"accept res = "<<conn<<endl;
 
 				cs.push_back(conn);
 				epfd_add(child_epfd, conn);
+
+#ifdef DEBUG
+				printf("client : %s:%d fd = %d \n",
+			    		inet_ntoa(addr.sin_addr),
+			    		ntohs(addr.sin_port),
+			    		conn);
+#endif
+
 			}
 			else if(events[i].events & EPOLLIN)
 			{
@@ -236,11 +252,7 @@ void child_run(int id)
 				if(0 > ret)
 				{
 					if(errno == EAGAIN)
-					{
-						cout<<"read later"<<endl;
-						break;
-					}
-					
+						continue;
 					child_stop = true;
 				}
 				else if(0 == ret)
@@ -268,11 +280,13 @@ void child_run(int id)
 
 void child_task_over(int sig)
 {
-cout<<"child_task_over____"<<endl;
-	int status;
-    waitpid(-1, &status, WNOHANG);   
-    if(!WIFEXITED(status))
-    	ERROR_EXIT;
+	pid_t pid;
+    int stat;
+    while ((pid = waitpid( -1, &stat, WNOHANG )))
+    {
+        continue;
+    }
+    	
 #ifdef DEBUG
     cout<<"child task over!"<<endl;
 #endif
@@ -280,33 +294,14 @@ cout<<"child_task_over____"<<endl;
 
 void child_killed(int sig)
 {
-cout<<"child_killed____"<<endl;
 	child_stop = true;
-}
-
-void client_connect(int sockfd)
-{
-	int clientfd;
-	sockaddr_in client_address;
-	socklen_t addrlen = sizeof(sockaddr_in);
-
-	CHK_ERROR(clientfd = accept(sockfd, (sockaddr *)&client_address, &addrlen));
-	cs.push_back(clientfd);
-	epfd_add(epfd, clientfd);
-
-#ifdef DEBUG
-	printf("client : %s : % d(IP : port), fd = %d \n",
-    		inet_ntoa(client_address.sin_addr),
-    		ntohs(client_address.sin_port),
-    		clientfd);
-#endif
 }
 
 void response_router(int sockfd, vector<string> str)
 {
 #ifdef DEBUG
 	for(int i = 0; i < str.size(); i++)
-		cout<<"param["<<i<<"] = "<<str[i]<<endl;
+		printf("param[%d] = %s\n", i, str[i].c_str());
 	cout<<"---------------------"<<endl;
 #endif
 
@@ -357,9 +352,15 @@ void req_chat(int sockfd, vector<string>& str)
 	{
 		int to = atoi(wesql.FindAddrFromName(str[1]).c_str());
 		if(-1 == to)
+		{
+		cout<<"11111"<<endl;
 			response_reply(sockfd, "user unlogin\n");
+		}
 		else
+		{
+		cout<<"22222 to = "<<to<<endl;
 			response_reply(to, msg.c_str());
+		}
 	}
 }
 

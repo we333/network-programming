@@ -22,8 +22,7 @@
 
 using namespace std;
 
-//#define IP 			("192.168.68.211")	// ubuntu
-#define IP 			("192.168.68.134")
+#define IP 			("192.168.11.5")
 #define PORT 		(11111)
 
 #define MAX_CHILD_PROCESS_NUM	(5)		// SubProcessの数

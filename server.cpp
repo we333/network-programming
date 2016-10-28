@@ -22,6 +22,7 @@ void response_router(int sockfd, vector<string> str);
 	void req_search(int sockfd, vector<string>& str);
 	void req_upload(int sockfd, vector<string>& str);
 	void req_booking(int sockfd, vector<string>& str);
+	void req_checkbooking(int sockfd, vector<string>& str);
 	void req_sendfile(int sockfd, vector<string>& str);
 	void req_recvfile(int sockfd, vector<string>& str);
 	void req_debug(int sockfd, vector<string>& str);
@@ -63,7 +64,7 @@ int listener;
 	Signalをキャッチすると、直接に処理することではなく、sig_pipefd[1]に書き込む
 	MainProcessのWhile(1)循環で、sig_pipefd[0]より信号を取得して処理します
 */
-int sig_pipefd[2];			// 统一事件源
+int sig_pipefd[2];
 // SubProcessのPollです
 internal_process_communication childs[MAX_CHILD_PROCESS_NUM];
 // ユーザーRequestのRouterみたいなものです
@@ -75,6 +76,7 @@ Request request[] =
 	{"search",		4,	req_search 		},
 	{"upload", 		8,	req_upload 		},
 	{"booking",		5,	req_booking 	},
+	{"checkbooking",2,	req_checkbooking},
 	{"pullfile",	3,	req_sendfile	},
 	{"pushfile",	3,	req_recvfile	},
 
@@ -94,7 +96,7 @@ void req_debug(int sockfd, vector<string>& str)
 
 int main(int ac, char *av[])
 {
-	init_socket(IP, PORT);
+	init_socket(av[1], atoi(av[2]));
 	init_child_process();
 	init_epoll();
 	init_signal();
@@ -143,12 +145,7 @@ int main(int ac, char *av[])
 						case SIGTERM:
 						case SIGINT:
 							for(int i = 0; i < MAX_CHILD_PROCESS_NUM; i++)
-							{
-								cout<<"kill child "<<childs[i].pid<<endl;
 								kill(childs[i].pid, SIGTERM);
-								server_stop = true;
-								exit(0);
-							}
 							server_stop = true;
 							break;
 						default:
@@ -157,12 +154,13 @@ int main(int ac, char *av[])
 				}
 			}
 			else
-				cout<<"88888888888888888"<<endl;
+				;
 		}
 	}
 
 	close(listener);
 	close(epfd);
+	exit(0);
 	return 0;
 }
 
@@ -327,7 +325,8 @@ void child_run(int id)
 				int ret = recv(sockfd, buf, BUFSIZ, 0);
 				if(0 > ret)
 				{
-					if(errno == EAGAIN)
+					//104 connection reset by peer
+					if(errno == EAGAIN || errno == 104)
 						continue;
 					child_stop = true;
 				}
@@ -346,7 +345,7 @@ void child_run(int id)
 				
 			}
 			else
-				cout<<"99999999999"<<endl;
+				;
 		}
 	}
 
@@ -425,6 +424,9 @@ void req_register(int sockfd, vector<string>& str)
 	response_reply(sockfd, wesql.Register(usr) ? REPLY_SUCCESS : REPLY_FAILED);
 }
 
+/*
+	cannot be used in multi process
+*/
 void req_chat(int sockfd, vector<string>& str)
 {
 	string from = wesql.FindNameFromAddr(sockfd);	// get user's chat_addr
@@ -442,6 +444,8 @@ void req_chat(int sockfd, vector<string>& str)
 	{
 		// 受信側今ログインしているかどうかを確認します
 		int to = atoi(wesql.FindAddrFromName(str[1]).c_str());
+		cout<<"pid = "<<getpid()<<endl;
+		cout<<"to = "<<to<<endl;
 		if(0 >= to)
 		{
 			response_reply(sockfd, REPLY_UNLOGINED);
@@ -506,6 +510,26 @@ void req_booking(int sockfd, vector<string>& str)
 	info.end = str[4];
 
 	response_reply(sockfd, wesql.Booking(info) ? REPLY_SUCCESS : REPLY_FAILED);
+}
+
+void req_checkbooking(int sockfd, vector<string>& str)
+{
+	vector<string> db_res = wesql.Check_booking(str[1]);
+	
+/*	donot check size, because checking by usr.name will recv NULL msg, size != 0
+	if(0 == db_res.size())
+		{client_reply(sockfd, "noresults\n"); return;}
+*/
+	string msg;
+	vector<string>::iterator it;
+	for(it = db_res.begin(); it != db_res.end(); it++)	// bug 由于client的epoll监听是同一事件,连续send两次消息,client也只能处理一次消息
+		msg += *it + '|';
+	msg += '\n';		// for Android recv, add '\n' at end of string !!!!
+
+	if("||||||\n" == msg)	// if no results from DB 
+		return response_reply(sockfd, REPLY_NORESULTS);
+
+	response_reply(sockfd, msg.c_str());
 }
 
 /*

@@ -78,8 +78,12 @@ public:
 		conn = driver->connect(SQL_ADDRESS, SQL_USER, SQL_PASSWORD); 
 		conn->setSchema("carpool");
 		stmt = conn->createStatement();
+		ClearAllAddr();
 	}
-	~WeSQL(){	cout<<"destruct WeSQL"<<endl;};
+	~WeSQL()
+	{	
+		ClearAllAddr();
+	};
 /*	bool Create_table()
 	{
 		stmt = conn->createStatement();
@@ -95,6 +99,13 @@ public:
 		snprintf(c_addr, 10, "%d", addr);		// int_fd to char
 		pstmt->setString(1, SQL_INIT_ADDR);
 		pstmt->setString(2, c_addr);
+		res = pstmt->executeQuery();
+		return true;
+	}
+	bool ClearAllAddr()
+	{
+		pstmt = conn->prepareStatement("UPDATE userinfo set addr=(?)");
+		pstmt->setString(1, SQL_INIT_ADDR);
 		res = pstmt->executeQuery();
 		return true;
 	}
@@ -197,6 +208,27 @@ public:
 
 		return true;
 	};
+	vector<string> Check_booking(string name)
+	{
+		vector<string> list;
+		pstmt = conn->prepareStatement("SELECT date, start, end, price, seat, comment FROM userinfo where name=(?)");
+		pstmt->setString(1, name);
+		res = pstmt->executeQuery();
+
+		while(res->next())					// 如果存在此拼车信息,则返回true
+		{
+			if(NULL != res)
+			{
+				list.push_back(res->getString("date"));
+				list.push_back(res->getString("start"));
+				list.push_back(res->getString("end"));
+				list.push_back(res->getString("price"));
+				list.push_back(res->getString("seat"));
+				list.push_back(res->getString("comment"));
+			}
+		}
+		return list;
+}
 	bool Upload(carpool_info info)
 	{
 		pstmt = conn->prepareStatement("UPDATE userinfo set date=(?), start=(?), end=(?), price=(?), seat=(?), comment=(?) where name=(?)");

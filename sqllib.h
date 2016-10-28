@@ -1,10 +1,3 @@
-/*
-	MySQL cmd
-	CREATE TABLE table_name (column_name column_type);
-	add: alter table userinfo add column addr varchar(20) not null;
-	update: udate userinfo set login="NO" where name='we';
-
-*/
 
 #ifndef MYSQL_H_INCLUDED
 #define MYSQL_H_INCLUDED

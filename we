@@ -1,8 +1,10 @@
 
 #g++ -o server -lmysqlcppconn server.cpp	#(centos)
-g++ -o server server.cpp -lmysqlcppconn 	#(ubuntu)
+#g++ -o server server.cpp -lmysqlcppconn -lpthread	#(ubuntu)
+
+
 
 g++ -o client client.cpp
 
+g++ -o file_client file_client.cpp
 
-#g++ -o file_client file_client.cpp

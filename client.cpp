@@ -17,23 +17,42 @@
 
 #include "utility.h"
 
+int init_client_socket(const char *ip, int port)
+{
+	int client_socket;
+
+	if(-1 == (client_socket = socket(AF_INET, SOCK_STREAM, 0)))
+		ERROR_EXIT("client socket failed");
+
+	sockaddr_in addr;
+	bzero((void *)&addr, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = inet_addr(ip);
+
+	if(-1 == connect(client_socket, (sockaddr *)&addr, sizeof(sockaddr_in)))
+		ERROR_EXIT("connect failed");
+
+	return client_socket;
+}
+
 int main(int ac, char *av[])
 {
 	bool living = true;
 	pid_t pid;
-	int sockfd = make_client_socket(IP, PORT);
+	int sockfd = init_client_socket(IP, PORT);
 	int epfd, event_cnt, pipe_fd[2];
 	char msg[BUFSIZ]; bzero(msg, BUFSIZ);
 
-	Try(pipe(pipe_fd))
+	CHK_ERROR(pipe(pipe_fd));
 
-	Try(epfd = epoll_create(EPOLL_SIZE))
+	CHK_ERROR(epfd = epoll_create(MAX_EPOLL_EVENT_NUM));
 
 	struct epoll_event events[2];
-	epfd_add(epfd, sockfd, true);
-	epfd_add(epfd, pipe_fd[0], true);
+	epfd_add(epfd, sockfd);
+	epfd_add(epfd, pipe_fd[0]);
 
-	Try(pid = fork())
+	CHK_ERROR(pid = fork());
 	if(0 == pid)	// 子进程 write 1
 	{
 		close(pipe_fd[0]);
@@ -44,7 +63,7 @@ int main(int ac, char *av[])
 			if(0 == strncasecmp(msg, "exit", strlen("exit")))
 				living = false;
 			else
-				Try(write(pipe_fd[1], msg, strlen(msg)-1))
+				CHK_ERROR(write(pipe_fd[1], msg, strlen(msg)-1));
 		}
 		close(pipe_fd[1]);
 	}
@@ -53,20 +72,20 @@ int main(int ac, char *av[])
 		close(pipe_fd[1]);
 		while(living)
 		{
-			Try(event_cnt = epoll_wait(epfd, events, EPOLL_SIZE, -1))
+			CHK_ERROR(event_cnt = epoll_wait(epfd, events, MAX_EPOLL_EVENT_NUM, -1));
 			for(int i = 0; i < event_cnt; i++)
 			{
 				int ret;
 				bzero(msg, BUFSIZ);
 				if(sockfd == events[i].data.fd)
 				{
-					Try(recv(sockfd, msg, BUFSIZ, 0));
+					CHK_ERROR(recv(sockfd, msg, BUFSIZ, 0));
 					if(0 == ret)	living = false;
 					else 			cout<<msg<<endl;	
 				}
 				else 	// read msg from stdin
 				{
-					Try(ret = read(events[i].data.fd, msg, BUFSIZ));
+					CHK_ERROR(ret = read(events[i].data.fd, msg, BUFSIZ));
 					if(0 == ret)	living = false;
 					else 			send(sockfd, msg, BUFSIZ, 0);
 						

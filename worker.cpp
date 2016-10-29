@@ -1,10 +1,8 @@
-
-#include <sys/types.h>    
+   
 #include <sys/stat.h>    
 #include <sys/socket.h>
 #include <fcntl.h>
 #include <sys/sendfile.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "worker.h"
@@ -36,13 +34,13 @@ Request request[] =
 };
 
 /*
-Summary : detect request, and then process it
+Summary : detect request is correct or not, and then process it
 Parameters:
 	sockfd : client' socket descriptor
-	str : client's command
+	str : message from client
 Return : 
 */
-void response_router(int sockfd, vector<string> str)
+void response_router(int sockfd, vector<string>& str)
 {
 #ifdef DEBUG
 	for(int i = 0; i < str.size(); i++)
@@ -127,13 +125,9 @@ void req_chat(int sockfd, vector<string>& str)
 		// 受信側今ログインしているかどうかを確認します
 		int to = atoi(wesql.FindAddrFromName(str[1]).c_str());
 		if(0 >= to)
-		{
 			response_reply(sockfd, REPLY_UNLOGINED);
-		}
 		else
-		{
 			response_reply(to, msg.c_str());
-		}
 	}
 }
                                                                                                           
@@ -160,7 +154,7 @@ void req_search(int sockfd, vector<string>& str)
 	vector<string>::iterator it;
 	for(it = db_res.begin(); it != db_res.end(); it++)
 		msg += *it + '|';
-	msg += '\n';		// for Android recv, add '\n' at end of string !!!!
+	msg += '\n';		// for Android recv, add '\n' at the end of string !!!!
 
 	response_reply(sockfd, msg.c_str());
 }

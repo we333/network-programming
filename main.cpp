@@ -10,22 +10,14 @@ Description: It's a Half-Sync/Half-Async Architectural TCP server
 
 **************************************************************************/
 
-#include <list>
 #include <sys/wait.h>
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/epoll.h>
-
-#include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
 #include <string.h>
+#include <list>
 
 #include "config.h"
 #include "worker.h"
@@ -76,7 +68,7 @@ int listener;
 int sig_pipefd[2];
 
 // SubProcessのPollです
-InternalProcessCommunication workers[MAX_CHILD_PROCESS_NUM];
+InternalProcessCommunication workers[MAX_WORKER_PROCESS_NUM];
 
 /*
 Summary: initialize and launch server
@@ -135,9 +127,9 @@ int main(int ac, char *av[])
 						// MainProcessがもしCtrl+C、KillなどのSignalをもらったら、SubProcessを終了します
 						case SIGTERM:
 						case SIGINT:
-							for(int i = 0; i < MAX_CHILD_PROCESS_NUM; i++)
+							for(int i = 0; i < MAX_WORKER_PROCESS_NUM; i++)
 								kill(workers[i].pid, SIGTERM);
-							exit(0);	// server_stopをtrueに設置しても、ちゃんとexitしてなかった場合があるらしいです
+							exit(0);	// server_stopをtrueに設置しても、ちゃんとexitしてなかった場合がありそうです
 							break;
 						default:
 							break;
@@ -190,7 +182,7 @@ Return :
 */
 void init_worker_process()
 {
-	for(int i = 0; i < MAX_CHILD_PROCESS_NUM; i++)
+	for(int i = 0; i < MAX_WORKER_PROCESS_NUM; i++)
 	{
 		// Main/Sub　Processが通信できるために、socketpairで設置します
 		CHK_ERROR(socketpair(PF_UNIX, SOCK_STREAM, 0, workers[i].pipefd));
@@ -271,7 +263,7 @@ void polling_allocate_task()
 	int call = 1;
 	// ポーリング方式で、順番に各SubProcessを呼びます
 	send(workers[polling_id++].pipefd[WRITE], (char *)&call, sizeof(call), 0);
-	polling_id %= MAX_CHILD_PROCESS_NUM;
+	polling_id %= MAX_WORKER_PROCESS_NUM;
 }
 
 /*
@@ -342,7 +334,8 @@ void worker_run(int id)
 				else
 				{
 					// Clientの要求を処理します
-					response_router(sockfd, split(buf));
+					vector<string> msg = split(buf);
+					response_router(sockfd, msg);
 				}
 				
 			}
@@ -375,7 +368,7 @@ void worker_task_over(int sig)
 }
 
 /*
-Summary : sub process killed by kill command
+Summary : sub process received kill command
 Parameters:
 	sig : unused
 Return : 

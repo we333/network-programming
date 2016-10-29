@@ -21,7 +21,7 @@ typedef struct
 	void (*func)(int, vector<string>&);
 }Request;
 
-void response_router(int sockfd, vector<string> str);
+void response_router(int sockfd, vector<string>& str);
 
 void req_login(int sockfd, vector<string>& str);
 void req_register(int sockfd, vector<string>& str);

@@ -6,12 +6,12 @@
 
 #define DEBUG
 
-#define MAX_CHILD_PROCESS_NUM	(5)		// SubProcessの数
+#define MAX_WORKER_PROCESS_NUM	(5)		// SubProcessの数
 #define READ 					(0)		// Pipeを読み込み
 #define WRITE					(1)		//　Pipeを書き込み
 #define MAX_EPOLL_EVENT_NUM 	(4096)	// epoll監視イベントの数
 
-#define TOKEN 			("|")			// 命令集は param1|param2|param3の形です
+#define TOKEN 			("|")			// Clientからもらった"param1|param2|param3"のメッセージを分解
 #define FILE_PATH 		("static/")		// ファイルを保存する場所
 
 // ユーザーへ返事の内容

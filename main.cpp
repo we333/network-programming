@@ -1,5 +1,3 @@
-#define DEBUG
-
 #include <list>
 #include <sys/wait.h>
 #include <sys/types.h>
@@ -17,6 +15,7 @@
 #include <pthread.h>
 #include <string.h>
 
+#include "config.h"
 #include "worker.h"
 #include "utility.h"
 
@@ -119,7 +118,7 @@ int main(int ac, char *av[])
 						case SIGINT:
 							for(int i = 0; i < MAX_CHILD_PROCESS_NUM; i++)
 								kill(workers[i].pid, SIGTERM);
-							server_stop = true;
+							exit(0);
 							break;
 						default:
 							break;

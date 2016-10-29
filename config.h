@@ -1,8 +1,11 @@
+
 #ifndef CONFIG_H_INCLUDED
 #define CONFIG_H_INCLUDED
 
 #include <stdio.h>
 #include <stdlib.h>
+
+#define DEBUG
 
 #define MAX_CHILD_PROCESS_NUM	(5)		// SubProcessの数
 #define READ 					(0)		// Pipeを読み込み

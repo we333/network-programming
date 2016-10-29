@@ -25,21 +25,17 @@ Description: It's a Half-Sync/Half-Async Architectural TCP server
 
 using namespace std;
 
-void init_socket(const char *ip, int port);
-void init_worker_process();
-void init_epoll();
-void init_signal();
-void sig_handler(int msg);
+static void init_socket(const char *ip, int port);
+static void init_worker_process(int num);
+static void init_epoll();
+static void init_signal();
+static void sig_handler(int msg);
 
-void polling_allocate_task();
+static void polling_allocate_task();
 
-void worker_run(int id);
-void worker_task_over(int sig);
-void worker_killed(int sig);
-
-int epfd;			// MainProcessのepoll fd
-epoll_event events[MAX_EPOLL_EVENT_NUM];	// epollのeventを保存します
-list<int> chat;		// 登録した顧客のsockｆｄを保存して、Chatの送信と受信で使われます
+static void worker_run(int id);
+static void worker_task_over(int sig);
+static void worker_killed(int sig);
 
 /*
 	MainProcessとSubProcess間の通信手段です
@@ -54,11 +50,11 @@ typedef struct
 	int pipefd[2];
 }InternalProcessCommunication;
 
-// SubProcessが動くかどうかのFlagです
-bool worker_stop = false;
-
-// サーバのsocket file descriptorです
-int listener;
+bool worker_stop = false;				// SubProcessが動くかどうかのFlagです
+int listener;							// サーバのsocket file descriptorです
+int epfd;								// MainProcessのepoll fd
+epoll_event events[MAX_EPOLL_EVENT_NUM];// epollのeventを保存します	
+list<int> chat;							// 登録した顧客のsockｆｄを保存して、Chatの送信と受信で使われます
 
 /* 	
 	MainProcess側がsock監視とSignal監視を統一するために、
@@ -66,9 +62,7 @@ int listener;
 	MainProcessのWhile(1)循環で、sig_pipefd[0]より信号を取得して処理します
 */
 int sig_pipefd[2];
-
-// SubProcessのPollです
-InternalProcessCommunication workers[MAX_WORKER_PROCESS_NUM];
+InternalProcessCommunication workers[MAX_WORKER_PROCESS_NUM];	// SubProcessのPollです
 
 /*
 Summary: initialize and launch server
@@ -80,7 +74,7 @@ Return : 0
 int main(int ac, char *av[])
 {
 	init_socket(av[1], atoi(av[2]));
-	init_worker_process();
+	init_worker_process(MAX_WORKER_PROCESS_NUM);
 	init_epoll();
 	init_signal();
 
@@ -124,12 +118,12 @@ int main(int ac, char *av[])
 						case SIGCHLD:
 							worker_task_over(i);
 							break;
-						// MainProcessがもしCtrl+C、KillなどのSignalをもらったら、SubProcessを終了します
+						// MainProcessがもしCtrl+C、KillなどのSignalをもらったら、SubProcessを終了してから、自分も終了します
 						case SIGTERM:
 						case SIGINT:
 							for(int i = 0; i < MAX_WORKER_PROCESS_NUM; i++)
 								kill(workers[i].pid, SIGTERM);
-							exit(0);	// server_stopをtrueに設置しても、ちゃんとexitしてなかった場合がありそうです
+							server_stop = true;
 							break;
 						default:
 							break;
@@ -154,7 +148,7 @@ Parameters:
     port : listening port
 Return : 
 */
-void init_socket(const char *ip, int port)
+static void init_socket(const char *ip, int port)
 {
 	int yes = 1;
 	int server_socket;
@@ -178,25 +172,24 @@ void init_socket(const char *ip, int port)
 /*
 Summary: initialize servel sub process and ready to work
 Parameters:
+	num : the number of sub process
 Return : 
 */
-void init_worker_process()
+static void init_worker_process(int num)
 {
-	for(int i = 0; i < MAX_WORKER_PROCESS_NUM; i++)
+	for(int i = 0; i < num; i++)
 	{
 		// Main/Sub　Processが通信できるために、socketpairで設置します
 		CHK_ERROR(socketpair(PF_UNIX, SOCK_STREAM, 0, workers[i].pipefd));
 		// SubProcessを作成します
 		workers[i].pid = fork();
-		// ここはMainProcessです
-		if(workers[i].pid > 0)
+		if(workers[i].pid > 0)	// ここはMainProcessです
 		{
 			close(workers[i].pipefd[READ]);
 			set_unblocking(workers[i].pipefd[WRITE]);
 			continue;
 		}
-		// ここは作り出したSubProcessです、最後にchild_runに入ります
-		else
+		else					// ここは作り出したSubProcessです、最後にchild_runに入ります
 		{
 			workers[i].pid = getpid();
 			close(workers[i].pipefd[WRITE]);
@@ -216,7 +209,7 @@ Summary: initialize the epoll I/O
 Parameters:
 Return :
 */
-void init_epoll()
+static void init_epoll()
 {
 	CHK_ERROR(epfd = epoll_create(5));
 	epfd_add(epfd, listener);
@@ -227,7 +220,7 @@ Summary: set up signal handler
 Parameters:
 Return : 
 */
-void init_signal()
+static void init_signal()
 {
 	//	イベント処理の統一化、signalあったら、epolls_waitで対応します
 	CHK_ERROR(socketpair(AF_UNIX, SOCK_STREAM, 0, sig_pipefd));
@@ -246,9 +239,9 @@ Parameters:
 	msg : received signal
 Return : 
 */
-void sig_handler(int msg)
+static void sig_handler(int msg)
 {
-	// 一旦Signalをキャッチすると、sig_pipefd[1]に書き込むより、epoll_waitに通知します
+	// 一旦Signalをキャッチすると、sig_pipefd[1]に書き込むより、epfdに通知します
 	CHK_ERROR(send(sig_pipefd[WRITE], (char *)&msg, 1, 0));
 }
 
@@ -257,7 +250,7 @@ Summary: awaken sub process to work
 Parameters:
 Return : 
 */
-void polling_allocate_task()
+static void polling_allocate_task()
 {
 	static int polling_id = 0;
 	int call = 1;
@@ -272,7 +265,7 @@ Parameters:
 	id : the ID of process
 Return : 
 */
-void worker_run(int id)
+static void worker_run(int id)
 {
 	// 各SubProcessが別々に、自分のepoll　eventを作成します
 	epoll_event events[MAX_EPOLL_EVENT_NUM];
@@ -355,7 +348,7 @@ Parameters:
 	sig : unused
 Return : 
 */
-void worker_task_over(int sig)
+static void worker_task_over(int sig)
 {
 	pid_t pid;
     int stat;
@@ -373,7 +366,7 @@ Parameters:
 	sig : unused
 Return : 
 */
-void worker_killed(int sig)
+static void worker_killed(int sig)
 {
 	worker_stop = true;
 }

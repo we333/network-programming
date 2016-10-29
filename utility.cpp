@@ -68,7 +68,7 @@ void epfd_add(int epollfd, int fd)
 {
 	epoll_event event;
 	event.data.fd = fd;
-	event.events = EPOLLIN | EPOLLET;			// fd read enable & edge trigger mode
+	event.events = EPOLLIN | EPOLLET;			// fd read event & edge trigger mode
 	epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
 
 	set_unblocking(fd);
@@ -85,7 +85,7 @@ void epfd_del(int epollfd, int fd)
 {
 	epoll_event event;
 	event.data.fd = fd;
-	event.events = EPOLLIN;			// fd read enable
+	event.events = EPOLLIN;			// fd read event
 
 	epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, &event);
 }

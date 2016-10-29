@@ -69,11 +69,11 @@ Return :
 */
 void req_login(int sockfd, vector<string>& str)
 {
-	login_info usr;
+	LoginInfo usr;
 	usr.name = str[1];
 	usr.pwd = str[2];
 
-	if(wesql.Login(usr, sockfd))
+	if(wesql.sql_login(usr, sockfd))
 	{
 		//　顧客さんが正しくログインしたよ、連絡sockｆｄをChatListに追加します
 		chat.push_back(sockfd);
@@ -92,12 +92,12 @@ Return :
 */
 void req_register(int sockfd, vector<string>& str)
 {
-	register_info usr;
+	RegisterInfo usr;
 	usr.name = str[1];
 	usr.pwd = str[2];
 	usr.email = str[3];
 	
-	response_reply(sockfd, wesql.Register(usr) ? REPLY_SUCCESS : REPLY_FAILED);
+	response_reply(sockfd, wesql.sql_register(usr) ? REPLY_SUCCESS : REPLY_FAILED);
 }
 
 /*
@@ -109,7 +109,7 @@ Return :
 */
 void req_chat(int sockfd, vector<string>& str)
 {
-	string from = wesql.FindNameFromAddr(sockfd);	// get user's chat_addr
+	string from = wesql.sql_find_name_from_addr(sockfd);	// get user's chat_addr
 	string msg = "<" + from + ">:" + str[2] + '\n';
 	// Chat内容はログインした全員に送ります
 	if("all" == str[1])
@@ -123,7 +123,7 @@ void req_chat(int sockfd, vector<string>& str)
 	else
 	{
 		// 受信側今ログインしているかどうかを確認します
-		int to = atoi(wesql.FindAddrFromName(str[1]).c_str());
+		int to = atoi(wesql.sql_find_addr_from_name(str[1]).c_str());
 		if(0 >= to)
 			response_reply(sockfd, REPLY_UNLOGINED);
 		else
@@ -141,12 +141,12 @@ Return :
 void req_search(int sockfd, vector<string>& str)
 {
 	vector<string> db_res;
-	search_info info;
+	SearchInfo info;
 	info.date = str[1];
 	info.start = str[2];
 	info.end = str[3];
 
-	db_res = wesql.Search(info);
+	db_res = wesql.sql_search(info);
 	if(0 == db_res.size())
 		return response_reply(sockfd, REPLY_NORESULTS);
 
@@ -168,7 +168,7 @@ Return :
 */
 void req_upload(int sockfd, vector<string>& str)
 {
-	carpool_info info;
+	CarpoolInfo info;
 	info.name = str[1];
 	info.date = str[2];
 	info.start = str[3];
@@ -177,7 +177,7 @@ void req_upload(int sockfd, vector<string>& str)
 	info.seat = str[6];
 	info.comment = str[7];
 	
-	response_reply(sockfd, wesql.Upload(info) ? REPLY_SUCCESS : REPLY_FAILED);
+	response_reply(sockfd, wesql.sql_upload(info) ? REPLY_SUCCESS : REPLY_FAILED);
 }
 
 /*
@@ -189,13 +189,13 @@ Return :
 */
 void req_booking(int sockfd, vector<string>& str)
 {
-	booking_info info;
+	BookingInfo info;
 	info.name = str[1];
 	info.date = str[2];
 	info.start = str[3];
 	info.end = str[4];
 
-	response_reply(sockfd, wesql.Booking(info) ? REPLY_SUCCESS : REPLY_FAILED);
+	response_reply(sockfd, wesql.sql_booking(info) ? REPLY_SUCCESS : REPLY_FAILED);
 }
 
 /*
@@ -207,7 +207,7 @@ Return :
 */
 void req_checkbooking(int sockfd, vector<string>& str)
 {
-	vector<string> db_res = wesql.Check_booking(str[1]);
+	vector<string> db_res = wesql.sql_check_booking(str[1]);
 	
 /*	donot check message size, because even receive NULL, it's size not equals 0
 	if(0 == db_res.size())

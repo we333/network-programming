@@ -1,3 +1,15 @@
+/**************************************************************************
+
+Copyright:duyan
+
+Author: duyan
+
+Date:2016-10-28
+
+Description: It's a Half-Sync/Half-Async Architectural TCP server
+
+**************************************************************************/
+
 #include <list>
 #include <sys/wait.h>
 #include <sys/types.h>
@@ -35,26 +47,7 @@ void worker_killed(int sig);
 
 int epfd;			// MainProcessのepoll fd
 epoll_event events[MAX_EPOLL_EVENT_NUM];	// epollのeventを保存します
-list<int> cs;		// 登録した顧客のsockｆｄを保存して、Chatの送信と受信で使われます
-
-typedef struct
-{
-	pid_t pid;
-	int pipefd[2];
-}InternalProcessCommunication;
-
-// SubProcessが動くかどうかのFlagです
-bool worker_stop = false;
-// サーバのsocket fdです
-int listener;
-/* 	MainProcess側がsock監視とSignal監視を統一するために、
-	Signalをキャッチすると、直接に処理することではなく、sig_pipefd[1]に書き込む
-	MainProcessのWhile(1)循環で、sig_pipefd[0]より信号を取得して処理します
-*/
-int sig_pipefd[2];
-// SubProcessのPollです
-InternalProcessCommunication workers[MAX_CHILD_PROCESS_NUM];
-// ユーザーRequestのRouterみたいなものです
+list<int> chat;		// 登録した顧客のsockｆｄを保存して、Chatの送信と受信で使われます
 
 /*
 	MainProcessとSubProcess間の通信手段です
@@ -63,9 +56,35 @@ InternalProcessCommunication workers[MAX_CHILD_PROCESS_NUM];
 	pipefd：
 		MainProcess側がpipefd[1]に書き込む、SubProcess側がpipefd[0]を監視しているから通知されます
 */
+typedef struct
+{
+	pid_t pid;
+	int pipefd[2];
+}InternalProcessCommunication;
 
+// SubProcessが動くかどうかのFlagです
+bool worker_stop = false;
 
+// サーバのsocket file descriptorです
+int listener;
 
+/* 	
+	MainProcess側がsock監視とSignal監視を統一するために、
+	Signalをキャッチすると、直接に処理することではなく、sig_pipefd[1]に書き込む
+	MainProcessのWhile(1)循環で、sig_pipefd[0]より信号を取得して処理します
+*/
+int sig_pipefd[2];
+
+// SubProcessのPollです
+InternalProcessCommunication workers[MAX_CHILD_PROCESS_NUM];
+
+/*
+Summary: initialize and launch server
+Parameters:
+    ac : the number of parameters    
+    av : av[1] should be a ip address, av[2] should be a listening port 
+Return : 0
+*/
 int main(int ac, char *av[])
 {
 	init_socket(av[1], atoi(av[2]));
@@ -94,7 +113,7 @@ int main(int ac, char *av[])
 		{
 			int sockfd = events[i].data.fd;
 
-			// 新しいクライアントが来ました、SubProcessに任せます
+			// 新しいClientが来ました、SubProcessに任せます
 			if(sockfd == listener)
 			{
 				polling_allocate_task();
@@ -118,7 +137,7 @@ int main(int ac, char *av[])
 						case SIGINT:
 							for(int i = 0; i < MAX_CHILD_PROCESS_NUM; i++)
 								kill(workers[i].pid, SIGTERM);
-							exit(0);
+							exit(0);	// server_stopをtrueに設置しても、ちゃんとexitしてなかった場合があるらしいです
 							break;
 						default:
 							break;
@@ -137,8 +156,11 @@ int main(int ac, char *av[])
 }
 
 /*
-	役割：サーバのsocketを準備します
-	
+Summary: initialize the socket of server
+Parameters:
+    ip : server ip
+    port : listening port
+Return : 
 */
 void init_socket(const char *ip, int port)
 {
@@ -161,8 +183,10 @@ void init_socket(const char *ip, int port)
 	listener = server_socket;
 }
 
-/* 
-	Process　Pollを初期化
+/*
+Summary: initialize servel sub process and ready to work
+Parameters:
+Return : 
 */
 void init_worker_process()
 {
@@ -195,6 +219,11 @@ void init_worker_process()
 	MainProcessのepollを作成します
 	そしてサーバのsocketを登録して、監視し始めます
 */
+/*
+Summary: initialize the epoll I/O
+Parameters:
+Return :
+*/
 void init_epoll()
 {
 	CHK_ERROR(epfd = epoll_create(5));
@@ -202,7 +231,9 @@ void init_epoll()
 }
 
 /*
-	対応したいLinuxのSignalを登録します
+Summary: set up signal handler
+Parameters:
+Return : 
 */
 void init_signal()
 {
@@ -218,38 +249,36 @@ void init_signal()
 }
 
 /*
-	役割：
-		SignalのHandler関数です
-	変数：
-		msg:キャッチしたSignalの種類
-	Process：
-		一旦Signalをキャッチすると、sig_pipefd[1]に書き込むより、epoll_waitに通知します
+Summary: process received signal
+Parameters:
+	msg : received signal
+Return : 
 */
 void sig_handler(int msg)
 {
+	// 一旦Signalをキャッチすると、sig_pipefd[1]に書き込むより、epoll_waitに通知します
 	CHK_ERROR(send(sig_pipefd[WRITE], (char *)&msg, 1, 0));
 }
 
 /*
-	役割：
-		ポーリング方式で、
-	Process：
-		順番に各SubProcessを呼びます
+Summary: awaken sub process to work
+Parameters:
+Return : 
 */
 void polling_allocate_task()
 {
 	static int polling_id = 0;
 	int call = 1;
+	// ポーリング方式で、順番に各SubProcessを呼びます
 	send(workers[polling_id++].pipefd[WRITE], (char *)&call, sizeof(call), 0);
-	
 	polling_id %= MAX_CHILD_PROCESS_NUM;
 }
 
 /*
-	役割：
-		SubProcesｓはここに動いてます
-	変数：
-		id:SubProcessのID
+Summary: sub process's workspace
+Parameters:
+	id : the ID of process
+Return : 
 */
 void worker_run(int id)
 {
@@ -264,18 +293,18 @@ void worker_run(int id)
 
 	while(!worker_stop)
 	{
-		int number = epoll_wait(worker_epfd, events, MAX_EPOLL_EVENT_NUM, -1);
-		for(int i = 0; i < number; i++)
+		int event_cnt = epoll_wait(worker_epfd, events, MAX_EPOLL_EVENT_NUM, -1);
+		for(int i = 0; i < event_cnt; i++)
 		{
 			int sockfd = events[i].data.fd;
-			// pipefdの事件、MainProcessから呼びかけました、顧客さん来たよ
+			// pipefdの事件、MainProcessから呼びかけました、Client来たよ
 			if((sockfd == pipefd) && (events[i].events & EPOLLIN))
 			{
 				struct sockaddr_in addr; 
 				bzero((void *)&addr, sizeof(addr));
 				socklen_t addr_len = sizeof(sockaddr_in);
 
-				// 顧客さんをacceptします
+				// Clientをacceptします
 				int conn = 0;
 				CHK_ERROR(conn = accept(listener, (struct sockaddr *)&addr, &addr_len));
 
@@ -289,6 +318,7 @@ void worker_run(int id)
 #endif
 
 			}
+			// Clientからメッセージを受信します
 			else if(events[i].events & EPOLLIN)
 			{
 				char buf[BUFSIZ]; 
@@ -297,19 +327,21 @@ void worker_run(int id)
 				if(0 > ret)
 				{
 					//104 connection reset by peer
-					if(errno == EAGAIN || errno == 104)
-						continue;
-					worker_stop = true;
+					if(errno != EAGAIN && errno != 104)
+						worker_stop = true;
 				}
 				else if(0 == ret)
 				{
-					cs.remove(sockfd);
+					// delete client's socket from chat list
+					chat.remove(sockfd);
+					// epoll do not monitor client's socket
 					epfd_del(worker_epfd, sockfd);
 					close(sockfd);
 					break;
 				}
 				else
 				{
+					// Clientの要求を処理します
 					response_router(sockfd, split(buf));
 				}
 				
@@ -325,22 +357,29 @@ void worker_run(int id)
 }
 
 /*
-	SubProcess終了したら、MainProcessが回収します
+Summary : main process recycle sub process
+Parameters:
+	sig : unused
+Return : 
 */
 void worker_task_over(int sig)
 {
 	pid_t pid;
     int stat;
     while ((pid = waitpid( -1, &stat, WNOHANG )))
-    {
         continue;
-    }
     	
 #ifdef DEBUG
     cout<<"worker task over!"<<endl;
 #endif
 }
 
+/*
+Summary : sub process killed by kill command
+Parameters:
+	sig : unused
+Return : 
+*/
 void worker_killed(int sig)
 {
 	worker_stop = true;

@@ -10,9 +10,15 @@
 using namespace std;
 
 /*
-	ユーザーの命令を分析します
-
-	chat|we|hello -> weに"hello"を送信します
+Summary : segment parameter from string
+	chat|we|hello -->
+		para1 = chat
+		para2 = we
+		para3 = hello
+Parameters:
+	buf : received string from client
+Return : 
+	segmented string
 */
 vector<string> split(char *buf)
 {
@@ -30,7 +36,10 @@ vector<string> split(char *buf)
 }
 
 /*
-	epollのEdge　Triggerモードに、sockｆｄは非閉塞
+Summary : set file descriptor as unblocking mode
+Parameters:
+	fd : file descriptor
+Return : 
 */
 void set_unblocking(int fd)
 {
@@ -38,7 +47,10 @@ void set_unblocking(int fd)
 }
 
 /*
-	ファイルを受信するとき、sockｆｄを閉塞にします
+Summary : set file descriptor as blocking mode
+Parameters:
+	fd : file descriptor
+Return : 
 */
 void set_blocking(int fd)
 {
@@ -46,7 +58,11 @@ void set_blocking(int fd)
 }
 
 /*
-	ｆｄをepollfdに追加して、監視し始めます
+Summary : add file descriptor into epoll's monitor queue
+Parameters:
+	epollfd : epoll file descriptor
+	fd : file descriptor
+Return : 
 */
 void epfd_add(int epollfd, int fd)
 {
@@ -59,7 +75,11 @@ void epfd_add(int epollfd, int fd)
 }
 
 /*
-	fdをepollfdから削除して、監視しない
+Summary : delete file descriptor from epoll's monitor queue
+Parameters:
+	epollfd : epoll file descriptor
+	fd : file descriptor
+Return : 
 */
 void epfd_del(int epollfd, int fd)
 {
@@ -71,9 +91,13 @@ void epfd_del(int epollfd, int fd)
 }
 
 /*
-	SignalのHandler関数を指定します
+Summary : register signal event
+Parameters:
+	sig : signal ID
+	handler : signal handler
+Return : 
 */
-void sig_add(int sig, void (* handler)(int), bool restart = true)
+void sig_add(int sig, void (* handler)(int))
 {
 	struct sigaction sa;
 	bzero(&sa, sizeof(sa));

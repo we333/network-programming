@@ -14,9 +14,10 @@
 
 using namespace std;
 
-extern list<int> cs;
+// chat機能、各ユーザーの送信宛名を保存します
+extern list<int> chat;
 
-
+// ユーザーRequestのRouterです。命令をチェックするために、各命令のサイズを事前に定義します
 Request request[] = 
 {
 	{"login", 		3,	req_login 		},
@@ -35,7 +36,11 @@ Request request[] =
 };
 
 /*
-	受信したユーザーの命令を対応します
+Summary : detect request, and then process it
+Parameters:
+	sockfd : client' socket descriptor
+	str : client's command
+Return : 
 */
 void response_router(int sockfd, vector<string> str)
 {
@@ -57,6 +62,13 @@ void response_router(int sockfd, vector<string> str)
 	response_reply(sockfd, REPLY_UNDEFINED);			// undefined command
 }
 
+/*
+Summary : user login
+Parameters:
+	sockfd : client' socket descriptor
+	str : login infomation
+Return : 
+*/
 void req_login(int sockfd, vector<string>& str)
 {
 	login_info usr;
@@ -66,13 +78,20 @@ void req_login(int sockfd, vector<string>& str)
 	if(wesql.Login(usr, sockfd))
 	{
 		//　顧客さんが正しくログインしたよ、連絡sockｆｄをChatListに追加します
-		cs.push_back(sockfd);
+		chat.push_back(sockfd);
 		response_reply(sockfd, REPLY_SUCCESS);
 	}
 	else
 		response_reply(sockfd, REPLY_FAILED);
 }
 
+/*
+Summary : user register
+Parameters:
+	sockfd : client' socket descriptor
+	str : client's request
+Return : 
+*/
 void req_register(int sockfd, vector<string>& str)
 {
 	register_info usr;
@@ -84,7 +103,11 @@ void req_register(int sockfd, vector<string>& str)
 }
 
 /*
-	cannot be used in multi process
+Summary : user chat (AF_INET is unusabale in multiprocess, except use AF_UNIX setting by socketpair())
+Parameters:
+	sockfd : client' socket descriptor
+	str : chat message
+Return : 
 */
 void req_chat(int sockfd, vector<string>& str)
 {
@@ -94,7 +117,7 @@ void req_chat(int sockfd, vector<string>& str)
 	if("all" == str[1])
 	{
 		list<int>::iterator it;
-    	for(it = cs.begin(); it != cs.end(); it++)
+    	for(it = chat.begin(); it != chat.end(); it++)
 			if(sockfd != *it)
 				response_reply(*it, msg.c_str());		// broadcast, donot send to myself
 	}
@@ -113,9 +136,13 @@ void req_chat(int sockfd, vector<string>& str)
 		}
 	}
 }
-
+                                                                                                          
 /*
-	相乗りの情報を入力して、検索します
+Summary : search carpool infomation
+Parameters:
+	sockfd : client' socket descriptor
+	str : search keyword, contains date, from, to
+Return : 
 */
 void req_search(int sockfd, vector<string>& str)
 {
@@ -131,7 +158,7 @@ void req_search(int sockfd, vector<string>& str)
 
 	string msg;
 	vector<string>::iterator it;
-	for(it = db_res.begin(); it != db_res.end(); it++)	// bug 由于client的epoll监听是同一事件,连续send两次消息,client也只能处理一次消息
+	for(it = db_res.begin(); it != db_res.end(); it++)
 		msg += *it + '|';
 	msg += '\n';		// for Android recv, add '\n' at end of string !!!!
 
@@ -139,7 +166,11 @@ void req_search(int sockfd, vector<string>& str)
 }
 
 /*
-	車主は出発情報を登録します
+Summary : upload carpool infomation
+Parameters:
+	sockfd : client' socket descriptor
+	str : carpool information, contains driver name, date, from, to, price, seat number, comment
+Return : 
 */
 void req_upload(int sockfd, vector<string>& str)
 {
@@ -156,7 +187,11 @@ void req_upload(int sockfd, vector<string>& str)
 }
 
 /*
-	出発の車を予約します
+Summary : booking carpool
+Parameters:
+	sockfd : client' socket descriptor
+	str : booking carpool keyword
+Return : 
 */
 void req_booking(int sockfd, vector<string>& str)
 {
@@ -169,28 +204,40 @@ void req_booking(int sockfd, vector<string>& str)
 	response_reply(sockfd, wesql.Booking(info) ? REPLY_SUCCESS : REPLY_FAILED);
 }
 
+/*
+Summary : before booking carpool, check seat is more than one or not
+Parameters:
+	sockfd : client' socket descriptor
+	str : check remain seat by driver name
+Return : 
+*/
 void req_checkbooking(int sockfd, vector<string>& str)
 {
 	vector<string> db_res = wesql.Check_booking(str[1]);
 	
-/*	donot check size, because checking by usr.name will recv NULL msg, size != 0
+/*	donot check message size, because even receive NULL, it's size not equals 0
 	if(0 == db_res.size())
 		{client_reply(sockfd, "noresults\n"); return;}
 */
 	string msg;
 	vector<string>::iterator it;
-	for(it = db_res.begin(); it != db_res.end(); it++)	// bug 由于client的epoll监听是同一事件,连续send两次消息,client也只能处理一次消息
+	for(it = db_res.begin(); it != db_res.end(); it++)
 		msg += *it + '|';
-	msg += '\n';		// for Android recv, add '\n' at end of string !!!!
+	msg += '\n';		// for Android recv(), should add '\n' at the end of string !!!!
 
-	if("||||||\n" == msg)	// if no results from DB 
+	// 捜索した相乗り情報を見つけません
+	if("||||||\n" == msg)
 		return response_reply(sockfd, REPLY_NORESULTS);
 
 	response_reply(sockfd, msg.c_str());
 }
 
 /*
-	Androidにファイルを送信します（使われないです）
+Summary : send file to client by sendfile (zero copy by kernel)
+Parameters:
+	sockfd : client' socket descriptor
+	str : requested file name
+Return : 
 */
 void req_sendfile(int sockfd, vector<string>& str)
 {
@@ -202,15 +249,20 @@ void req_sendfile(int sockfd, vector<string>& str)
 
 	struct stat stat_buf;
 	fstat(fd, &stat_buf);
-	usleep(1);
-	CHK_ERROR(sendfile(sockfd, fd, NULL, stat_buf.st_size));	// sendfile: zero copy by kernel
+	usleep(1);	// must wait a moment before sendfile() !!
+	CHK_ERROR(sendfile(sockfd, fd, NULL, stat_buf.st_size));
 }
 
 /*
-	Android側ファイルを受信します
+Summary : receive file from client
+Parameters:
+	sockfd : client' socket descriptor
+	str : client's file name
+Return : 
 */
 void req_recvfile(int sockfd, vector<string>& str)
 {
+	// receive big data should use blocking mode, it's not a good method
 	set_blocking(sockfd);
 
 	FILE *f;
@@ -235,9 +287,6 @@ void response_reply(int sockfd, string reply)
 	CHK_ERROR(send(sockfd, reply.c_str(), BUFSIZ, 0));
 }
 
-/*
-	telnetでサーバを訪問して、Debug用の関数です
-*/
 void req_debug(int sockfd, vector<string>& str)
 {
 	

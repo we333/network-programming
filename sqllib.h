@@ -88,7 +88,7 @@ public:
 	{
 		stmt = conn->createStatement();
 		stmt->execute("DROP TABLE IF EXISTS userinfo");
-		stmt->execute("CREATE TABLE userinfo(id int primary key, name varchar(20), pwd varchar(20), email varchar(50), sex varchar(2), age varchar(2))");
+		stmt->execute("CREATE TABLE userinfo(name varchar(20), pwd varchar(20), email varchar(50), sex varchar(2), age varchar(2))");
 		stmt->execute("alter table userinfo change id id int auto_increment;");
 		return true;
 	}	*/

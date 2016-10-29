@@ -1,9 +1,12 @@
 CC		=	g++
-SRCS	= 	server.cpp
+SRCS	= 	main.cpp	\
+			worker.cpp	\
+			utility.cpp
 
 OBJS	=	$(SRCS:.cpp=.o)
-EXEC	=	server
-LIBS	=	-lmysqlcppconn -lpthread
+EXEC	=	main
+LIBS	=	-lmysqlcppconn
+#LIBS	=	-lmysqlcppconn -lpthread
 
 start:	$(OBJS)
 	$(CC) -o $(EXEC) $(OBJS) $(LIBS)
